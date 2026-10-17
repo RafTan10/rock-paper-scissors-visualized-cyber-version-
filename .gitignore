@@ -1,0 +1,16 @@
+# virtual environment (each person makes their own)
+.venv/
+venv/
+
+# build output (GitHub Actions rebuilds the web version)
+build/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# old .wav copies of the sounds (the game uses the .ogg files)
+sounds/*.wav
+
+# personal step-by-step notes
+INSTRUCTIONS.md

@@ -1,0 +1,2 @@
+pygame-ce      # graphics, sound and input (imported as "pygame")
+pygbag         # only needed to build the web version

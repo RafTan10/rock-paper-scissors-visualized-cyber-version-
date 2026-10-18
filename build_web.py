@@ -6,6 +6,9 @@ Build the web (browser) version of the game with pygbag.
 
 Only the files the game needs are copied into build/rps first, so pygbag
 doesn't pack the .venv folder or other extras.
+
+web_template.tmpl is pygbag's default web page with the colours changed
+to the game's black (instead of grey side bars and a light-blue loader).
 """
 import os
 import shutil
@@ -30,7 +33,8 @@ for folder, exts in FOLDERS.items():
         if name.lower().endswith(exts):
             shutil.copy(os.path.join(HERE, folder, name), os.path.join(STAGE, folder))
 
-cmd = [sys.executable, "-m", "pygbag", "--title", "Rock Paper Scissors", "--app_name", "rps"]
+cmd = [sys.executable, "-m", "pygbag", "--title", "Rock Paper Scissors", "--app_name", "rps",
+       "--template", os.path.join(HERE, "web_template.tmpl")]
 if "--serve" not in sys.argv:
     cmd.append("--build")
 cmd.append(STAGE)

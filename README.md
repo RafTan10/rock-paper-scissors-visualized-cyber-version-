@@ -14,6 +14,7 @@ A 5-round Rock Paper Scissors game against the computer, with a glitchy "hacker 
 | `Space` or click | next round |
 | `R` | play again after the final screen |
 | `M` | mute / unmute |
+| `F` | fullscreen (browser) |
 
 The first load in a browser can take a while, because it downloads a small Python runtime. After that it's cached. Click the page once to start, which lets the browser play sound.
 

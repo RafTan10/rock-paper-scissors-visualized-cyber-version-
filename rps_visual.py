@@ -7,6 +7,7 @@ Controls:
     SPACE / click                  -> next round
     R                              -> restart after the final screen
     M                              -> mute / unmute music and sounds
+    F                              -> fullscreen (web version)
     ESC                            -> quit
 
 Needs pygame:   pip install pygame
@@ -576,6 +577,12 @@ class Game:
         except pygame.error:
             pass
 
+    def toggle_fullscreen(self):
+        # web only: ask the browser to show the page fullscreen (or leave it)
+        import platform   # in the browser, pygbag's "platform" talks to JavaScript
+        platform.window.eval("document.fullscreenElement ? document.exitFullscreen()"
+                             " : document.documentElement.requestFullscreen()")
+
     # ---------------- flow ----------------
     def play(self, key):
         if self.state != 'choose':
@@ -635,6 +642,8 @@ class Game:
                 sys.exit()
             if e.key == pygame.K_m:
                 self.toggle_mute()
+            if e.key == pygame.K_f and WEB:
+                self.toggle_fullscreen()
             ch = e.unicode
             if self.state == 'choose' and ch in choices:
                 self.play(ch)
@@ -812,6 +821,13 @@ class Game:
         for b in self.buttons:
             b.draw(s, self.f_mid, self.f_small, self.tiles, b.rect.collidepoint(mouse),
                    self.state == 'choose')
+
+        # small key hints in the bottom corners
+        snd = self.f_tiny.render("[M] SOUND OFF" if self.muted else "[M] SOUND ON", True, GREY)
+        s.blit(snd, (W - snd.get_width() - 24, H - 26))
+        if WEB:
+            fs = self.f_tiny.render("[F] FULLSCREEN", True, GREY)
+            s.blit(fs, (24, H - 26))
 
         if self.state == 'final':
             self.draw_final()

@@ -1,10 +1,19 @@
 # ROCK // PAPER // SCISSORS — hacker HUD edition
 
-A 5-round Rock Paper Scissors game against the computer, with a glitchy "hacker terminal" look, animated hands, music and sound effects. Written in Python with pygame. It runs on the desktop and in a web browser.
+A 5-round Rock Paper Scissors game against a computer that **learns your habits**, with a glitchy "hacker terminal" look, animated hands, music and sound effects. Written in Python with pygame. It runs on the desktop and in a web browser.
 
 ### ▶ [Play it in your browser](https://raftan10.github.io/rock-paper-scissors-visualized-cyber-version-/)
 
 ![Gameplay screenshot](docs/screenshot.png)
+
+## Features
+
+- **A learning AI opponent.** It remembers what you tend to play after each move and plays the counter. After every round it shows what it predicted, e.g. `PREDICTED : ROCK 67% [HIT]`.
+- **Streaks and combos.** Win in a row for a `STREAK x3` badge and stronger glitch effects. End the computer's streak for a `COMBO BREAKER`.
+- **The CPU talks back.** It types out a taunt after each round.
+- **End-of-game stats.** A chart of your moves, and how often the AI read you correctly.
+- **Saved records.** Games played, win rate and best streak are saved in your browser, or in `records.json` on a PC.
+- **Easy to tweak.** Rounds, colours, names, glitch strength, volume and taunts are all in one **GAME SETTINGS** block at the top of [`rps_visual.py`](rps_visual.py).
 
 ## How to play
 
@@ -24,7 +33,7 @@ The project is split into a **brain** and a **face**:
 
 | File | Role |
 |---|---|
-| [`try1.py`](try1.py) | **The brain:** the game rules. A dictionary maps keys to moves (`{'1': 'rock', ...}`), and `get_winner()` decides each round. Run on its own, it's a text version of the game in the terminal. |
+| [`try1.py`](try1.py) | **The brain:** the game rules and the AI. A dictionary maps keys to moves (`{'1': 'rock', ...}`), `get_winner()` decides each round, and `smart_computer_choice()` with `remember()` is the learning AI. Run on its own, it's a text version of the game in the terminal. |
 | [`rps_visual.py`](rps_visual.py) | **The face:** the pygame window, the hand animations, the effects and the sound. It **imports the rules from `try1.py`** instead of copying them, so changing a rule there changes the visual game too. |
 | [`main.py`](main.py) | Starts the web version. |
 | [`build_web.py`](build_web.py) | Builds the browser version with [pygbag](https://github.com/pygame-web/pygbag). |
@@ -38,6 +47,18 @@ The visual game runs a loop about 60 times a second, with three steps:
 3. **Draw:** redraw the whole screen.
 
 Each round moves through four states: `choose → shake → reveal → result`. After 5 rounds there's a `final` screen.
+
+### How the AI learns
+
+The AI keeps a table of **what you played right after each move**:
+
+```
+                 next move →  rock  paper  scissors
+after rock                      1      4       0
+after paper                     2      0       1
+```
+
+If your last move was rock, the table says you usually follow it with **paper**, so the AI plays **scissors**. Each round it picks first, using only past rounds, and **then** learns your move, so it never sees your current move before choosing. Its memory carries over from one game to the next, so it gets better the longer you play.
 
 The hands aren't images. Each one is drawn as a shape, sampled into a 60 × 40 grid, and every cell is filled with a texture or a `0`/`1` digit. That's what gives them the retro look.
 

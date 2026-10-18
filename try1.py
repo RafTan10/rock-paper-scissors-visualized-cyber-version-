@@ -1,5 +1,29 @@
 import random
 choices = {'1': 'rock', '2': 'paper', '3': 'scissors'}
+beats = { 'rock':'paper' , 'paper':'scissors' , 'scissors':'rock'}
+memory = {
+    'rock':     {'rock': 0, 'paper': 0, 'scissors': 0},
+    'paper':    {'rock': 0, 'paper': 0, 'scissors': 0},
+    'scissors': {'rock': 0, 'paper': 0, 'scissors': 0},
+}
+last_move = None
+def remember(player_move):
+    global last_move
+    if last_move is not None:
+        memory[last_move][player_move] += 1
+    last_move = player_move
+def smart_computer_choice():
+    if last_move is None:
+        return random.choice(list(choices.values()))   # first round: no data yet
+
+    counts = memory[last_move]                    # what the player did after their last move
+    prediction = max(counts, key=counts.get)      # the move with the highest count
+
+    if counts[prediction] == 0:
+        return random.choice(list(choices.values()))   # no pattern learned yet
+
+    return beats[prediction]                      # play what beats the prediction
+
 def get_decisions():
     player_input= input("1 for rock , 2 for paper , 3 for scissors: ").strip()
     while player_input not in choices:
@@ -7,7 +31,10 @@ def get_decisions():
 
 
     player_choice = choices[player_input]
-    computer_choice  = random.choice(list(choices.values()))
+    #computer_choice  = random.choice(list(choices.values())) # my old one without prediction
+    computer_choice = smart_computer_choice()
+    remember(player_choice)
+
 
     return player_choice , computer_choice
 

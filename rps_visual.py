@@ -1,6 +1,7 @@
 """
 ROCK // PAPER // SCISSORS  -  hacker HUD edition
-Visual version of try1.py (same rules, same 5 rounds).
+Visual version of try1.py: same rules, and the computer is YOUR learning AI
+from try1.py. Change how the game looks and plays in GAME SETTINGS below.
 
 Controls:
     1 / 2 / 3  or click a button  -> rock / paper / scissors
@@ -13,6 +14,7 @@ Controls:
 Needs pygame:   pip install pygame
 """
 import asyncio
+import json
 import math
 import os
 import random
@@ -23,16 +25,69 @@ import pygame
 WEB = sys.platform == "emscripten"      # True when running in a web browser
 
 # =====================================================================
+#  GAME SETTINGS - change these, save, and run the game again
+# =====================================================================
+# ---- game ----
+TOTAL_ROUNDS = 5           # rounds per game
+STREAK_MIN = 2             # wins in a row before "STREAK xN" shows up
+
+# ---- what is shown on screen ----
+PLAYER_NAME = "YOU"        # label above your panel
+CPU_NAME = "CPU"           # label above the computer's panel
+SHOW_PREDICTION = True     # CPU panel shows what your AI predicted each round
+SHOW_TAUNTS = True         # the CPU talks back after every round
+SHOW_STATS = True          # final screen: move chart, AI accuracy, saved records
+
+# ---- feel ----
+GLITCH_STRENGTH = 1.0      # 0 = calm, 1 = normal, 2 = wild
+SCREEN_SHAKE = 1.0         # 0 = off,  1 = normal, 2 = strong
+SHAKE_BEAT = 0.28          # seconds per "rock / paper / scissors" pump (bigger = slower)
+SHAKE_BEATS = 3            # number of pumps before SHOOT!
+DECODE_TIME = 0.35         # glitch-in of the real moves after SHOOT!
+FINAL_DELAY = 0.0          # after the last round: seconds before the final screen (0 = instantly)
+RESTART_DELAY = 0.8        # final screen ignores input this long (so it isn't skipped by accident)
+
+# ---- colours (red, green, blue: 0-255 each) ----
+PLAYER_COLOR = (236, 236, 236)     # white
+CPU_COLOR = (255, 40, 52)          # red
+
+# ---- sound ----
+MUSIC_FILE = "music.ogg"   # any .ogg file in the sounds folder
+MUSIC_VOLUME = 0.35        # 0.0 (silent) - 1.0 (full)
+SFX_VOLUME = 1.0           # 0.0 (silent) - 1.0 (full), all sound effects
+
+# ---- what the CPU says (SHOW_TAUNTS) - add your own lines! ----
+TAUNTS = {
+    'computer': ["firewall held.", "predictable human.", "access denied.",
+                 "I saw that coming.", "your pattern is showing."],
+    'player': ["anomaly detected...", "recalibrating.", "lucky packet.",
+               "that won't work twice.", "logging your strategy."],
+    'tie': ["mirror protocol.", "deadlock.", "synchronised.", "stop copying me."],
+    'cpu_streak': ["{n} in a row. I am learning you.", "{n} wins. you are a pattern.",
+                   "streak x{n}. resistance is futile."],       # {n} = CPU streak
+    'combo_breaker': ["...streak broken. impossible.", "you got lucky. once.",
+                      "critical error: streak lost."],
+}
+
+# =====================================================================
 #  YOUR GAME LOGIC - imported from try1.py (your own file!)
 # =====================================================================
+import try1                                   # your learning AI lives here
 from try1 import choices, get_winner
 
-TOTAL_ROUNDS = 5
 
-
-def get_computer_choice():
-    # same line you wrote inside get_decisions() in try1.py
-    return random.choice(list(choices.values()))
+def read_prediction():
+    """What your AI in try1.py predicts the player will play next.
+    Returns (move, confidence 0-1), or (None, 0) while it has no data yet.
+    Uses the same memory table as smart_computer_choice()."""
+    if try1.last_move is None:
+        return None, 0.0
+    counts = try1.memory[try1.last_move]
+    total = sum(counts.values())
+    if total == 0:
+        return None, 0.0
+    move = max(counts, key=counts.get)
+    return move, counts[move] / total
 
 
 def make_message(result, computer):
@@ -58,21 +113,11 @@ GREY = (120, 120, 124)
 DIM = (60, 60, 64)
 RED = (255, 40, 52)
 
-PLAYER_COLOR = WHITE
-CPU_COLOR = RED
-
 # player hand = style 'B' (bright outline + texture fill per move)
 # cpu hand    = style 'C' (made of 0s and 1s, bright outline digits)
 PLAYER_STYLE = 'B'
 CPU_STYLE = 'C'
 FILL = {'rock': 'hatch', 'paper': '!', 'scissors': 'bars'}
-
-# timing (seconds)
-SHAKE_BEAT = 0.28          # one "rock / paper / scissors" pump
-SHAKE_BEATS = 3
-DECODE_TIME = 0.35         # glitch-in of the real moves after SHOOT!
-FINAL_DELAY = 0.0          # after round 5: seconds before the final screen (0 = instantly)
-RESTART_DELAY = 0.8        # final screen ignores input this long (so it isn't skipped by accident)
 
 # hand shapes: side view, drawn on a canvas and sampled into a grid
 CW, CH = 240, 160
@@ -443,6 +488,14 @@ def make_overlay():
     return s
 
 
+def tile_fill(screen, tiles, rect, kind, color, size):
+    """Fill a rectangle with a repeating texture tile (used for the stat bars)."""
+    t = tiles.get(kind, color, size)
+    for yy in range(rect.y, rect.bottom, size):
+        for xx in range(rect.x, rect.right, size):
+            screen.blit(t, (xx, yy), (0, 0, min(size, rect.right - xx), min(size, rect.bottom - yy)))
+
+
 def fake_hex(n=8):
     return ''.join(random.choice('0123456789ABCDEF') for _ in range(n))
 
@@ -477,8 +530,6 @@ class Button:
 #  SOUND & MUSIC
 # =====================================================================
 SOUND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sounds")
-MUSIC_FILE = "music.ogg"      # swap for your own track: .ogg / .mp3 / .wav
-MUSIC_VOLUME = 0.35
 
 
 def load_sound(filename, volume=0.7):
@@ -486,7 +537,7 @@ def load_sound(filename, volume=0.7):
     path = os.path.join(SOUND_DIR, filename)
     try:
         sound = pygame.mixer.Sound(path)
-        sound.set_volume(volume)
+        sound.set_volume(volume * SFX_VOLUME)
         return sound
     except (pygame.error, FileNotFoundError):
         print(f"[sound] could not load {path} - continuing without it")
@@ -502,6 +553,42 @@ def start_music():
         pygame.mixer.music.play(-1)          # -1 = loop forever
     except (pygame.error, FileNotFoundError):
         print(f"[sound] could not play {path} - continuing without music")
+
+
+# =====================================================================
+#  SAVED RECORDS - kept between games (and after closing the game)
+# =====================================================================
+RECORDS_KEY = "rps_records"          # name of the save slot in the web browser
+RECORDS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "records.json")
+EMPTY_RECORDS = {'games': 0, 'wins': 0, 'losses': 0, 'draws': 0, 'best_streak': 0}
+
+
+def load_records():
+    """Read saved records: browser storage on the web, records.json on a PC."""
+    try:
+        if WEB:
+            import platform   # pygbag's bridge to JavaScript
+            text = platform.window.localStorage.getItem(RECORDS_KEY)
+        else:
+            with open(RECORDS_FILE, encoding="utf-8") as f:
+                text = f.read()
+        data = json.loads(text)
+        return {k: int(data.get(k, 0)) for k in EMPTY_RECORDS}
+    except Exception:
+        return dict(EMPTY_RECORDS)          # first game ever (or no storage): start fresh
+
+
+def save_records(records):
+    try:
+        text = json.dumps(records)
+        if WEB:
+            import platform
+            platform.window.localStorage.setItem(RECORDS_KEY, text)
+        else:
+            with open(RECORDS_FILE, "w", encoding="utf-8") as f:
+                f.write(text)
+    except Exception as e:
+        print(f"[records] could not save: {e}")
 
 
 # =====================================================================
@@ -547,6 +634,7 @@ class Game:
         self.t = 0.0
         self.ip = f"{random.randint(10, 220)}.{random.randint(0, 255)}." \
                   f"{random.randint(0, 255)}.{random.randint(1, 254)}"
+        self.records = load_records()
         self.reset()
 
     def reset(self):
@@ -554,6 +642,16 @@ class Game:
         self.player_score = 0
         self.computer_score = 0
         self.glitch = 0.8
+        # streaks (wins in a row) and stats for this game
+        self.player_streak = 0
+        self.cpu_streak = 0
+        self.best_streak = 0
+        self.move_counts = {move: 0 for move in choices.values()}
+        self.ai_guesses = 0            # rounds where your AI had a prediction
+        self.ai_hits = 0               # ...and the prediction was right
+        self.saved = False
+        self.new_best = False
+        # note: your AI's memory in try1.py is NOT reset - it keeps learning game after game
         self.new_round()
 
     def new_round(self):
@@ -562,6 +660,9 @@ class Game:
         self.message = "select payload"
         self.result = None
         self.player_choice = self.computer_choice = None
+        self.prediction = (None, 0.0)
+        self.taunt = ""
+        self.stamp = ("", WHITE)
         self.shake = 0.0
         self.player_hand.show('rock', idle=True)
         self.cpu_hand.show('rock', idle=True)
@@ -590,9 +691,20 @@ class Game:
         if self.state != 'choose':
             return
         self.player_choice = choices[key]
-        self.computer_choice = get_computer_choice()
+        # your AI from try1.py - same order as in get_decisions():
+        # it predicts and picks using only past rounds, THEN learns this move
+        self.prediction = read_prediction()
+        self.computer_choice = try1.smart_computer_choice()
+        try1.remember(self.player_choice)
         self.result = get_winner(self.player_choice, self.computer_choice)
         self.message = make_message(self.result, self.computer_choice)
+
+        self.move_counts[self.player_choice] += 1
+        guess = self.prediction[0]
+        if guess is not None:
+            self.ai_guesses += 1
+            if guess == self.player_choice:
+                self.ai_hits += 1
         self.player_hand.show('rock')
         self.cpu_hand.show('rock')
         self.state = 'shake'
@@ -609,26 +721,81 @@ class Game:
         self.sound('shoot')                     # "SHOOT!"
 
     def finish_reveal(self):
+        combo_breaker = False
         if self.result == 'player':
             self.player_score += 1
+            combo_breaker = self.cpu_streak >= STREAK_MIN      # you ended the CPU's streak
+            self.player_streak += 1
+            self.cpu_streak = 0
+            self.best_streak = max(self.best_streak, self.player_streak)
             self.cpu_hand.dim = True
             self.sound('win')
         elif self.result == 'computer':
             self.computer_score += 1
+            self.cpu_streak += 1
+            self.player_streak = 0
             self.player_hand.dim = True
             self.sound('lose')
         else:
-            self.sound('tie')
+            self.sound('tie')                                 # a tie doesn't break a streak
+
+        # big stamp text in the middle of the screen
+        if self.result == 'player':
+            if combo_breaker:
+                text = "COMBO BREAKER"
+            elif self.player_streak >= STREAK_MIN:
+                text = f"HACK SUCCESSFUL x{self.player_streak}"
+            else:
+                text = "HACK SUCCESSFUL"
+            self.stamp = (text, PLAYER_COLOR)
+        elif self.result == 'computer':
+            text = f"HACK FAILED x{self.cpu_streak}" if self.cpu_streak >= STREAK_MIN else "HACK FAILED"
+            self.stamp = (text, CPU_COLOR)
+        else:
+            self.stamp = ("STALEMATE", GREY)
+
+        # what the CPU says back
+        if combo_breaker:
+            kind = 'combo_breaker'
+        elif self.result == 'computer' and self.cpu_streak >= STREAK_MIN:
+            kind = 'cpu_streak'
+        else:
+            kind = self.result
+        self.taunt = random.choice(TAUNTS[kind]).format(n=self.cpu_streak)
+
+        # longer streaks = stronger glitch and shake
+        streak = self.player_streak if self.result == 'player' else self.cpu_streak
+        boost = 0.25 * min(streak, 4) if self.result != 'tie' and streak >= STREAK_MIN else 0.0
+        if combo_breaker:
+            boost = 1.0
         self.state = 'result'
         self.timer = 0.0
-        self.glitch = 1.0
-        self.shake = 0.3
+        self.glitch = 1.0 + boost
+        self.shake = 0.3 + 0.3 * boost
+
+    def save_game(self):
+        """Add this finished game to the saved records (once per game)."""
+        if self.saved:
+            return
+        self.saved = True
+        r = self.records
+        r['games'] += 1
+        if self.player_score > self.computer_score:
+            r['wins'] += 1
+        elif self.computer_score > self.player_score:
+            r['losses'] += 1
+        else:
+            r['draws'] += 1
+        self.new_best = self.best_streak > r['best_streak']
+        r['best_streak'] = max(r['best_streak'], self.best_streak)
+        save_records(r)
 
     def next_round(self):
         if self.round_number >= TOTAL_ROUNDS:
             self.state = 'final'
             self.timer = 0.0
             self.glitch = 1.0
+            self.save_game()
             return
         self.round_number += 1
         self.glitch = 0.5
@@ -710,7 +877,8 @@ class Game:
         return 0, 0
 
     # ---------------- drawing ----------------
-    def draw_panel(self, rect, label, ident, color, score, choice, hand, winner):
+    def draw_panel(self, rect, label, ident, color, score, choice, hand, winner,
+                   line2, streak, ident_color=GREY):
         s = self.canvas
         col = color if not hand.dim else scale(color, 0.4)
         shade = pygame.Surface(rect.size, pygame.SRCALPHA)
@@ -718,8 +886,12 @@ class Game:
         s.blit(shade, rect)
         corner_brackets(s, rect, col, 22, 2)
 
-        inverted_label(s, label, self.f_mid, col, (rect.x, rect.y - 34))
-        idt = self.f_tiny.render(ident, True, GREY)
+        name = inverted_label(s, f" {label} ", self.f_mid, col, (rect.x, rect.y - 34))
+        if streak >= STREAK_MIN:                                   # "STREAK x3" badge
+            badge = inverted_label(s, f" STREAK x{streak} ", self.f_small, BG,
+                                   (name.right + 8, name.y + 3), fg=col, pad=(6, 2))
+            pygame.draw.rect(s, col, badge, 1)
+        idt = self.f_tiny.render(ident, True, ident_color)
         s.blit(idt, (rect.x + 14, rect.y + 12))
         sc = self.f_big.render(f"{score}", True, col)
         s.blit(sc, (rect.right - sc.get_width() - 14, rect.y + 2))
@@ -735,10 +907,9 @@ class Game:
             move = fake_hex(6)
         else:
             move = "???" if int(self.t * 2) % 2 else "..."
-        lines = [f"PAYLOAD   : {move}",
-                 f"SIGNATURE : 0x{'%06X' % (score * 4099 + 0xA11)}"]
-        for i, ln in enumerate(lines):
-            t = self.f_tiny.render(ln, True, col if i == 0 else GREY)
+        lines = [(f"PAYLOAD   : {move}", col), line2]
+        for i, (ln, c) in enumerate(lines):
+            t = self.f_tiny.render(ln, True, c)
             s.blit(t, (rect.x + 14, rect.bottom - 44 + i * 17))
 
         if winner and self.state in ('result', 'final') and int(self.t * 6) % 2 == 0:
@@ -764,14 +935,22 @@ class Game:
                     s.blit(self.tiles.get('lighthatch', GREY, 8), (xx, pr.y),
                            (0, 0, min(8, pr.right - xx), 8))
 
+    def prediction_line(self):
+        """Second line of the CPU panel: what your AI predicted this round."""
+        guess, confidence = self.prediction
+        if self.state in ('shake', 'reveal'):
+            return f"PREDICTED : {fake_hex(6)}", GREY
+        if self.state not in ('result', 'final'):
+            return "PREDICTED : " + ("scanning" if int(self.t * 2) % 2 else "scanning."), GREY
+        if guess is None:
+            return "PREDICTED : learning you...", GREY
+        hit = guess == self.player_choice
+        return (f"PREDICTED : {guess.upper()} {int(confidence * 100)}%  {'[HIT]' if hit else '[MISS]'}",
+                CPU_COLOR if hit else GREY)
+
     def draw_stamp(self):
         s = self.canvas
-        if self.result == 'player':
-            text, bg = "HACK SUCCESSFUL", WHITE
-        elif self.result == 'computer':
-            text, bg = "HACK FAILED", RED
-        else:
-            text, bg = "STALEMATE", GREY
+        text, bg = self.stamp
         jitter = random.randint(-6, 6) if self.timer < 0.3 else 0
         t = self.f_huge.render(text, True, BG)
         box = t.get_rect(center=(W // 2 + jitter, 355)).inflate(40, 16)
@@ -793,12 +972,23 @@ class Game:
         pw, ph = 440, 410
         left = pygame.Rect(70, 150, pw, ph)
         right = pygame.Rect(W - 70 - pw, 150, pw, ph)
-        self.draw_panel(left, " YOU ", "ID: PLAYER_01  //  STATUS: ONLINE", PLAYER_COLOR,
+        signature = (f"SIGNATURE : 0x{'%06X' % (self.player_score * 4099 + 0xA11)}", GREY)
+        self.draw_panel(left, PLAYER_NAME, "ID: PLAYER_01  //  STATUS: ONLINE", PLAYER_COLOR,
                         self.player_score, self.player_choice, self.player_hand,
-                        self.result == 'player')
-        self.draw_panel(right, " CPU ", "ID: CPU_UNIT  //  THREAT: HIGH", CPU_COLOR,
+                        self.result == 'player', signature, self.player_streak)
+
+        cpu_ident, cpu_ident_col = "ID: CPU_UNIT  //  THREAT: HIGH", GREY
+        if SHOW_TAUNTS and self.state == 'result' and self.taunt:
+            typed = int(self.timer * 40)                     # "types" 40 letters per second
+            cursor = "_" if typed < len(self.taunt) or int(self.t * 3) % 2 else ""
+            cpu_ident, cpu_ident_col = f"> {self.taunt[:typed]}{cursor}", CPU_COLOR
+        if SHOW_PREDICTION:
+            cpu_line2 = self.prediction_line()
+        else:
+            cpu_line2 = (f"SIGNATURE : 0x{'%06X' % (self.computer_score * 4099 + 0xA11)}", GREY)
+        self.draw_panel(right, CPU_NAME, cpu_ident, CPU_COLOR,
                         self.computer_score, self.computer_choice, self.cpu_hand,
-                        self.result == 'computer')
+                        self.result == 'computer', cpu_line2, self.cpu_streak, cpu_ident_col)
 
         center_y = left.centery
         stamp_on = self.state == 'result' and self.timer < 1.4
@@ -817,7 +1007,7 @@ class Game:
         if self.state == 'result':
             if stamp_on:
                 self.draw_stamp()
-            col = {'player': WHITE, 'computer': RED, 'tie': GREY}[self.result]
+            col = {'player': PLAYER_COLOR, 'computer': CPU_COLOR, 'tie': GREY}[self.result]
             glitch_text(s, f"> {self.message}", self.f_mid, col, (W // 2, msg_y), self.glitch * 0.6)
             hint = "SPACE / CLICK  >> next round" if self.round_number < TOTAL_ROUNDS \
                 else "compiling final result..."
@@ -843,12 +1033,12 @@ class Game:
         if self.state == 'final':
             self.draw_final()
 
-        block_glitch(s, self.glitch)
+        block_glitch(s, self.glitch * GLITCH_STRENGTH)
         s.blit(self.overlay, (0, 0))
 
         # screen shake
-        ox = random.uniform(-1, 1) * self.shake * 30
-        oy = random.uniform(-1, 1) * self.shake * 30
+        ox = random.uniform(-1, 1) * self.shake * 30 * SCREEN_SHAKE
+        oy = random.uniform(-1, 1) * self.shake * 30 * SCREEN_SHAKE
         self.screen.fill(BG)
         self.screen.blit(s, (ox, oy))
         pygame.display.flip()
@@ -859,22 +1049,79 @@ class Game:
         ov.fill((0, 0, 0, 215))
         s.blit(ov, (0, 0))
         if self.player_score > self.computer_score:
-            title, col, tag = "You won the game!", WHITE, "SYSTEM OWNED"
+            title, col, tag = "You won the game!", PLAYER_COLOR, "SYSTEM OWNED"
         elif self.computer_score > self.player_score:
-            title, col, tag = "Computer won the game!", RED, "ACCESS DENIED"
+            title, col, tag = "Computer won the game!", CPU_COLOR, "ACCESS DENIED"
         else:
             title, col, tag = "The game is a draw!", GREY, "CONNECTION LOST"
-        box = pygame.Rect(W // 2 - 400, H // 2 - 160, 800, 320)
+        if SHOW_STATS:
+            box = pygame.Rect(W // 2 - 450, H // 2 - 250, 900, 500)
+            tag_y, title_y, score_y = box.y + 58, box.y + 112, box.y + 172
+        else:
+            box = pygame.Rect(W // 2 - 400, H // 2 - 160, 800, 320)
+            tag_y, title_y, score_y = box.y + 80, box.y + 150, box.y + 220
         corner_brackets(s, box, col, 34, 3)
         inverted_label(s, " === FINAL RESULT === ", self.f_small, col, (box.x, box.y - 30))
-        glitch_text(s, tag, self.f_huge, col, (W // 2, box.y + 80), max(self.glitch, 0.12))
-        glitch_text(s, title, self.f_mid, WHITE, (W // 2, box.y + 150), 0)
-        glitch_text(s, f"YOU {self.player_score}  :  {self.computer_score} CPU",
-                    self.f_big, WHITE, (W // 2, box.y + 220), 0)
+        glitch_text(s, tag, self.f_huge, col, (W // 2, tag_y), max(self.glitch, 0.12))
+        glitch_text(s, title, self.f_mid, WHITE, (W // 2, title_y), 0)
+        glitch_text(s, f"{PLAYER_NAME} {self.player_score}  :  {self.computer_score} {CPU_NAME}",
+                    self.f_big, WHITE, (W // 2, score_y), 0)
+        if SHOW_STATS:
+            self.draw_stats(box)
         if int(self.t * 2) % 2 == 0:
             hint = "ANY KEY / CLICK >> play again" if WEB \
                 else "ANY KEY / CLICK >> play again     ESC >> disconnect"
             glitch_text(s, hint, self.f_small, GREY, (W // 2, box.bottom - 24), 0)
+
+    def draw_stats(self, box):
+        """Final screen, bottom part: 3 columns - your moves / AI accuracy / saved records."""
+        s = self.canvas
+        top = box.y + 232
+        pygame.draw.line(s, DIM, (box.x + 40, top), (box.right - 40, top), 1)
+        col_w = (box.w - 80) // 3
+        x1, x2, x3 = box.x + 40, box.x + 40 + col_w, box.x + 40 + 2 * col_w
+        y = top + 20
+
+        def heading(text, x):
+            s.blit(self.f_tiny.render(text, True, GREY), (x, y))
+
+        # ---- column 1: which moves you played (bar chart) ----
+        heading("YOUR MOVES", x1)
+        total = max(1, sum(self.move_counts.values()))
+        favourite = max(self.move_counts, key=self.move_counts.get)
+        for i, (move, n) in enumerate(self.move_counts.items()):
+            row_y = y + 28 + i * 30
+            c = WHITE if move == favourite and n else GREY
+            s.blit(self.f_tiny.render(move.upper(), True, c), (x1, row_y))
+            bar = pygame.Rect(x1 + 86, row_y + 1, max(2, int(120 * n / total)), 14)
+            tile_fill(s, self.tiles, bar, FILL[move], c, 7)
+            pct = self.f_tiny.render(f"{round(100 * n / total)}%", True, c)
+            s.blit(pct, (x1 + 214, row_y))
+
+        # ---- column 2: how well your AI read you ----
+        heading("AI READ YOU", x2 + 20)
+        if self.ai_guesses:
+            big = f"{self.ai_hits}/{self.ai_guesses}"
+            sub = f"predictions right ({round(100 * self.ai_hits / self.ai_guesses)}%)"
+        else:
+            big, sub = "--", "no predictions yet"
+        s.blit(self.f_word.render(big, True, CPU_COLOR), (x2 + 20, y + 24))
+        s.blit(self.f_tiny.render(sub, True, GREY), (x2 + 20, y + 78))
+        s.blit(self.f_tiny.render("it keeps learning next game", True, DIM), (x2 + 20, y + 96))
+
+        # ---- column 3: saved records ----
+        r = self.records
+        heading("RECORD  (saved on this device)", x3 + 10)
+        rate = round(100 * r['wins'] / r['games']) if r['games'] else 0
+        rows = [("games played", r['games']), ("wins", r['wins']),
+                ("win rate", f"{rate}%"), ("best streak", r['best_streak'])]
+        for i, (k, v) in enumerate(rows):
+            row_y = y + 28 + i * 20
+            s.blit(self.f_tiny.render(k, True, GREY), (x3 + 10, row_y))
+            val = self.f_tiny.render(str(v), True, WHITE)
+            s.blit(val, (x3 + col_w - 20 - val.get_width(), row_y))
+        if self.new_best and int(self.t * 4) % 2 == 0:
+            inverted_label(s, " NEW BEST STREAK! ", self.f_tiny, PLAYER_COLOR, (x3 + 10, y + 112))
 
     async def run(self):
         while True:

@@ -12,5 +12,8 @@ __pycache__/
 # old .wav copies of the sounds (the game uses the .ogg files)
 sounds/*.wav
 
+# your saved game records on this PC (the web version saves in the browser)
+records.json
+
 # personal step-by-step notes
 INSTRUCTIONS.md

@@ -5,7 +5,7 @@ Visual version of try1.py (same rules, same 5 rounds).
 Controls:
     1 / 2 / 3  or click a button  -> rock / paper / scissors
     SPACE / click                  -> next round
-    R                              -> restart after the final screen
+    any key / click                -> play again on the final screen
     M                              -> mute / unmute music and sounds
     F                              -> fullscreen (web version)
     ESC                            -> quit
@@ -71,6 +71,8 @@ FILL = {'rock': 'hatch', 'paper': '!', 'scissors': 'bars'}
 SHAKE_BEAT = 0.28          # one "rock / paper / scissors" pump
 SHAKE_BEATS = 3
 DECODE_TIME = 0.35         # glitch-in of the real moves after SHOOT!
+FINAL_DELAY = 1.6          # after round 5: show its result this long, then the final screen
+RESTART_DELAY = 0.8        # final screen ignores input this long (so it isn't skipped by accident)
 
 # hand shapes: side view, drawn on a canvas and sampled into a grid
 CW, CH = 240, 160
@@ -625,6 +627,7 @@ class Game:
     def next_round(self):
         if self.round_number >= TOTAL_ROUNDS:
             self.state = 'final'
+            self.timer = 0.0
             self.glitch = 1.0
             return
         self.round_number += 1
@@ -653,17 +656,23 @@ class Game:
                     self.play(ch)
                 elif e.key in (pygame.K_SPACE, pygame.K_RETURN):
                     self.next_round()
-            elif self.state == 'final' and e.key in (pygame.K_r, pygame.K_SPACE, pygame.K_RETURN):
-                self.reset()
-        if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
-            if self.state == 'choose':
+            elif self.state == 'final' and e.key not in (pygame.K_m, pygame.K_f, pygame.K_ESCAPE):
+                self.restart()                      # any key plays again
+        if e.type == pygame.MOUSEBUTTONDOWN:
+            if self.state == 'final':
+                self.restart()                      # any mouse button plays again
+            elif e.button != 1:
+                return
+            elif self.state == 'choose':
                 for b in self.buttons:
                     if b.rect.collidepoint(e.pos):
                         self.play(b.key)
             elif self.state == 'result':
                 self.next_round()
-            elif self.state == 'final':
-                self.reset()
+
+    def restart(self):
+        if self.timer >= RESTART_DELAY:
+            self.reset()
 
     def update(self, dt):
         self.t += dt
@@ -687,6 +696,8 @@ class Game:
                     self.sound('beat')          # 2nd and 3rd pump
         elif self.state == 'reveal' and self.timer >= DECODE_TIME + 0.05:
             self.finish_reveal()
+        elif self.state == 'result' and self.round_number >= TOTAL_ROUNDS and self.timer >= FINAL_DELAY:
+            self.next_round()                   # last round done -> final screen by itself
 
     def fist_motion(self):
         """Up-down pump for the shake: returns (lift_pixels, tilt_degrees)."""
@@ -809,7 +820,7 @@ class Game:
             col = {'player': WHITE, 'computer': RED, 'tie': GREY}[self.result]
             glitch_text(s, f"> {self.message}", self.f_mid, col, (W // 2, msg_y), self.glitch * 0.6)
             hint = "SPACE / CLICK  >> next round" if self.round_number < TOTAL_ROUNDS \
-                else "SPACE / CLICK  >> final result"
+                else "compiling final result..."
             if int(self.t * 2) % 2 == 0:
                 h = self.f_tiny.render(hint, True, GREY)
                 s.blit(h, h.get_rect(center=(W // 2, H - 18)))
@@ -861,7 +872,8 @@ class Game:
         glitch_text(s, f"YOU {self.player_score}  :  {self.computer_score} CPU",
                     self.f_big, WHITE, (W // 2, box.y + 220), 0)
         if int(self.t * 2) % 2 == 0:
-            hint = "R / CLICK >> reboot" if WEB else "R / CLICK >> reboot     ESC >> disconnect"
+            hint = "ANY KEY / CLICK >> play again" if WEB \
+                else "ANY KEY / CLICK >> play again     ESC >> disconnect"
             glitch_text(s, hint, self.f_small, GREY, (W // 2, box.bottom - 24), 0)
 
     async def run(self):

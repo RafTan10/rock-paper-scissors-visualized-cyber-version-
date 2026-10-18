@@ -12,7 +12,7 @@ A 5-round Rock Paper Scissors game against the computer, with a glitchy "hacker 
 |---|---|
 | `1` / `2` / `3`, or click a button | rock / paper / scissors |
 | `Space` or click | next round |
-| `R` | play again after the final screen |
+| any key or click | play again on the final screen |
 | `M` | mute / unmute |
 | `F` | fullscreen (browser) |
 

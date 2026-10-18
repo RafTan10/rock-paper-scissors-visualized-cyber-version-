@@ -2,7 +2,7 @@
 
 A 5-round Rock Paper Scissors game against the computer, with a glitchy "hacker terminal" look, animated hands, music and sound effects. Written in Python with pygame. It runs on the desktop and in a web browser.
 
-### ▶ [Play it in your browser](https://USERNAME.github.io/REPO-NAME/)
+### ▶ [Play it in your browser](https://raftan10.github.io/rock-paper-scissors-visualized-cyber-version-/)
 
 ![Gameplay screenshot](docs/screenshot.png)
 

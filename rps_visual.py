@@ -71,7 +71,7 @@ FILL = {'rock': 'hatch', 'paper': '!', 'scissors': 'bars'}
 SHAKE_BEAT = 0.28          # one "rock / paper / scissors" pump
 SHAKE_BEATS = 3
 DECODE_TIME = 0.35         # glitch-in of the real moves after SHOOT!
-FINAL_DELAY = 1.6          # after round 5: show its result this long, then the final screen
+FINAL_DELAY = 0.0          # after round 5: seconds before the final screen (0 = instantly)
 RESTART_DELAY = 0.8        # final screen ignores input this long (so it isn't skipped by accident)
 
 # hand shapes: side view, drawn on a canvas and sampled into a grid

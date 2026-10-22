@@ -4,12 +4,15 @@ Visual version of try1.py: same rules, and the computer is YOUR learning AI
 from try1.py. Change how the game looks and plays in GAME SETTINGS below.
 
 Controls:
+    UP / DOWN + ENTER, or click    -> choose in the menus
     1 / 2 / 3  or click a button  -> rock / paper / scissors
+    Q / W / E  or click            -> hacker abilities (BRAIN SCAN / OVERCLOCK / FIREWALL)
     SPACE / click                  -> next round
     any key / click                -> play again on the final screen
+    B / BACKSPACE                  -> back to the menu
     M                              -> mute / unmute music and sounds
     F                              -> fullscreen (web version)
-    ESC                            -> quit
+    ESC                            -> back / quit (desktop)
 
 Needs pygame:   pip install pygame
 """
@@ -30,6 +33,16 @@ WEB = sys.platform == "emscripten"      # True when running in a web browser
 # ---- game ----
 TOTAL_ROUNDS = 5           # rounds per game
 STREAK_MIN = 2             # wins in a row before "STREAK xN" shows up
+SUDDEN_DEATH = True        # a tied quick match goes to sudden death rounds
+
+# ---- endless mode ----
+ENDLESS_LIVES = 3          # a lost round costs a life
+ENDLESS_LEVEL_UP = 5       # round wins before the AI gets harder (and a story fragment unlocks)
+
+# ---- hacker abilities (vs the AI) ----
+START_TOKENS = 3           # ability tokens at the start of a match
+TOKEN_STREAK = 3           # +1 token every time your win streak reaches a multiple of this
+SCAN_TRUTH = {'easy': 0.85, 'normal': 0.75, 'hard': 0.65}   # chance BRAIN SCAN's tallest bar is right
 
 # ---- what is shown on screen ----
 PLAYER_NAME = "YOU"        # label above your panel
@@ -37,6 +50,7 @@ CPU_NAME = "CPU"           # label above the computer's panel
 SHOW_PREDICTION = True     # CPU panel shows what your AI predicted each round
 SHOW_TAUNTS = True         # the CPU talks back after every round
 SHOW_STATS = True          # final screen: move chart, AI accuracy, saved records
+SHOW_RIDDLES = True        # a meme riddle hints at the CPU's move each round (riddles.py)
 
 # ---- feel ----
 GLITCH_STRENGTH = 1.0      # 0 = calm, 1 = normal, 2 = wild
@@ -56,6 +70,9 @@ MUSIC_FILE = "music.ogg"   # any .ogg file in the sounds folder
 MUSIC_VOLUME = 0.35        # 0.0 (silent) - 1.0 (full)
 SFX_VOLUME = 1.0           # 0.0 (silent) - 1.0 (full), all sound effects
 
+# ---- hacker rank titles: (rounds won in total, title) ----
+RANKS = [(0, "SCRIPT KIDDIE"), (15, "HACKER"), (50, "ELITE"), (120, "ROOT")]
+
 # ---- what the CPU says (SHOW_TAUNTS) - add your own lines! ----
 TAUNTS = {
     'computer': ["firewall held.", "predictable human.", "access denied.",
@@ -72,22 +89,17 @@ TAUNTS = {
 # =====================================================================
 #  YOUR GAME LOGIC - imported from try1.py (your own file!)
 # =====================================================================
-import try1                                   # your learning AI lives here
 from try1 import choices, get_winner
+import opponents                              # EASY / NORMAL / HARD (NORMAL = your AI in try1.py)
+from riddles import RiddleBox                 # meme riddle hints
+from story import INTRO, FRAGMENTS            # title screen text + the hidden log
 
-
-def read_prediction():
-    """What your AI in try1.py predicts the player will play next.
-    Returns (move, confidence 0-1), or (None, 0) while it has no data yet.
-    Uses the same memory table as smart_computer_choice()."""
-    if try1.last_move is None:
-        return None, 0.0
-    counts = try1.memory[try1.last_move]
-    total = sum(counts.values())
-    if total == 0:
-        return None, 0.0
-    move = max(counts, key=counts.get)
-    return move, counts[move] / total
+# hacker abilities: (key, id, name, what it does)
+ABILITIES = [
+    ('q', 'scan', "BRAIN SCAN", "see what the CPU is leaning towards (fuzzy!)"),
+    ('w', 'overclock', "OVERCLOCK", "a win this round counts double"),
+    ('e', 'firewall', "FIREWALL", "a loss this round counts as a tie"),
+]
 
 
 def make_message(result, computer):
@@ -281,19 +293,21 @@ class Hand:
         self.surf = pygame.Surface((GW * CELL, GH * CELL))
         self.slices = []
         self.slice_timer = 0.0
+        self.decode_time = DECODE_TIME
 
     def show(self, name, idle=False):
         """Show a shape immediately (used for the shaking fist)."""
         self.target, self.idle, self.progress, self.dim = name, idle, 1.0, False
 
-    def reveal(self, name):
+    def reveal(self, name, decode_time=DECODE_TIME):
         """Glitch-in a new shape."""
         self.target, self.idle, self.progress, self.dim = name, False, 0.0, False
+        self.decode_time = decode_time
         self.lock = [random.random() * 0.85 for _ in self.lock]
 
     def update(self, dt):
         if self.progress < 1:
-            self.progress = min(1.0, self.progress + dt / DECODE_TIME)
+            self.progress = min(1.0, self.progress + dt / self.decode_time)
         busy = self.progress < 1
         rate = 0.3 if busy else 0.05
         for i in range(len(self.bits)):
@@ -560,7 +574,8 @@ def start_music():
 # =====================================================================
 RECORDS_KEY = "rps_records"          # name of the save slot in the web browser
 RECORDS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "records.json")
-EMPTY_RECORDS = {'games': 0, 'wins': 0, 'losses': 0, 'draws': 0, 'best_streak': 0}
+EMPTY_RECORDS = {'games': 0, 'wins': 0, 'losses': 0, 'draws': 0, 'best_streak': 0,
+                 'rounds_won': 0, 'endless_best': 0, 'fragments': 0}
 
 
 def load_records():
@@ -573,9 +588,15 @@ def load_records():
             with open(RECORDS_FILE, encoding="utf-8") as f:
                 text = f.read()
         data = json.loads(text)
-        return {k: int(data.get(k, 0)) for k in EMPTY_RECORDS}
+        records = {k: int(data.get(k, 0)) for k in EMPTY_RECORDS}
+        records['top'] = [{'name': str(e['name'])[:3], 'score': int(e['score']), 'wave': int(e['wave'])}
+                          for e in data.get('top', [])][:10]
+        name = str(data.get('name', 'AAA')).upper()
+        records['name'] = name if len(name) == 3 else 'AAA'
+        return records
     except Exception:
-        return dict(EMPTY_RECORDS)          # first game ever (or no storage): start fresh
+        # first game ever (or no storage): start fresh
+        return dict(EMPTY_RECORDS, top=[], name='AAA')
 
 
 def save_records(records):
@@ -594,6 +615,25 @@ def save_records(records):
 # =====================================================================
 #  GAME
 # =====================================================================
+MENU_ITEMS = [   # (id, label, description)
+    ('quick', "QUICK MATCH", "best of {rounds} vs the AI. riddles + hacker abilities."),
+    ('endless', "ENDLESS", "{lives} lives. the AI gets harder every {level_up} wins."),
+    ('rankings', "RANKINGS", "top 10 scores and your hacker rank."),
+    ('archive', "ARCHIVE", "the AI's secret log. decrypted: {frags}"),
+]
+LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+
+def rank_of(xp):
+    """(title, xp needed for the next title or None) for a number of rounds won."""
+    title, nxt = RANKS[0][1], None
+    for i, (need, name) in enumerate(RANKS):
+        if xp >= need:
+            title = name
+            nxt = RANKS[i + 1][0] if i + 1 < len(RANKS) else None
+    return title, nxt
+
+
 class Game:
     def __init__(self):
         pygame.init()
@@ -631,41 +671,120 @@ class Game:
         x0 = W // 2 - (3 * bw + 2 * gap) // 2
         self.buttons = [Button(k, v, (x0 + i * (bw + gap), H - 96, bw, bh))
                         for i, (k, v) in enumerate(choices.items())]
+        # hacker abilities: small clickable boxes along the bottom edge
+        aw, gap = 196, 12
+        x0 = W // 2 - (3 * aw + 2 * gap) // 2 + 60
+        self.ability_rects = {aid: pygame.Rect(x0 + i * (aw + gap), H - 30, aw, 22)
+                              for i, (_, aid, _, _) in enumerate(ABILITIES)}
+        self.menu_button = pygame.Rect(16, 10, 104, 22)
+
         self.t = 0.0
+        self.timer = 0.0
+        self.glitch = 0.8
+        self.shake = 0.0
         self.ip = f"{random.randint(10, 220)}.{random.randint(0, 255)}." \
                   f"{random.randint(0, 255)}.{random.randint(1, 254)}"
         self.records = load_records()
-        self.reset()
+        self.menu_index = 0
+        self.diff_index = 1
+        self.letters = list(self.records.get('name', 'AAA'))
+        self.letter_pos = 0
+        self.highlight = None            # row to highlight on the rankings screen
+        self.mode, self.start_level = 'quick', 'normal'
+        self.sudden = False
+        self.go('title')
 
-    def reset(self):
+    # ---------------- screens ----------------
+    def go(self, scene):
+        """Switch screen: title / menu / difficulty / match / initials / rankings / archive."""
+        self.scene = scene
+        self.scene_t = 0.0
+        self.glitch = max(self.glitch, 0.7)
+        self.sudden = scene == 'match' and self.sudden
+
+    def menu_rects(self, count, top=200, step=78):
+        return [pygame.Rect(W // 2 - 300, top + i * step, 600, 64) for i in range(count)]
+
+    def menu_choices(self):
+        frags = f"{self.records['fragments']}/{len(FRAGMENTS)}"
+        return [(i, label, about.format(rounds=TOTAL_ROUNDS, lives=ENDLESS_LIVES,
+                                        level_up=ENDLESS_LEVEL_UP, frags=frags))
+                for i, label, about in MENU_ITEMS]
+
+    def diff_choices(self):
+        return [(lvl, opponents.INFO[lvl]['name'], f"{lvl.upper()}  //  {opponents.INFO[lvl]['about']}")
+                for lvl in opponents.LEVELS]
+
+    def letter_rects(self):
+        return [pygame.Rect(W // 2 - 170 + i * 120, 300, 100, 120) for i in range(3)]
+
+    def ok_rect(self):
+        return pygame.Rect(W // 2 - 90, 480, 180, 50)
+
+    # ---------------- a match ----------------
+    def start_match(self, mode, level):
+        self.mode, self.start_level = mode, level
+        self.level = level
+        self.opponent = opponents.Opponent(level)
+        self.riddle_box = RiddleBox()
+        self.tokens = START_TOKENS
         self.round_number = 1
         self.player_score = 0
         self.computer_score = 0
-        self.glitch = 0.8
+        self.sudden = False
         # streaks (wins in a row) and stats for this game
         self.player_streak = 0
         self.cpu_streak = 0
         self.best_streak = 0
+        self.round_wins = 0
         self.move_counts = {move: 0 for move in choices.values()}
-        self.ai_guesses = 0            # rounds where your AI had a prediction
+        self.ai_guesses = 0            # rounds where the AI had a prediction
         self.ai_hits = 0               # ...and the prediction was right
+        # endless
+        self.lives = ENDLESS_LIVES
+        self.score = 0
+        self.level_ups = 0
+        # end of game
         self.saved = False
         self.new_best = False
-        # note: your AI's memory in try1.py is NOT reset - it keeps learning game after game
+        self.new_high = False
+        self.new_fragments = []        # fragment numbers decrypted in this game
+        # note: the AI's memory is NOT reset - it keeps learning game after game
+        self.go('match')
         self.new_round()
 
     def new_round(self):
         self.state = 'choose'          # choose -> shake -> reveal -> result
         self.timer = 0.0
-        self.message = "select payload"
         self.result = None
         self.player_choice = self.computer_choice = None
-        self.prediction = (None, 0.0)
         self.taunt = ""
-        self.stamp = ("", WHITE)
-        self.shake = 0.0
+        self.stamp = ("SUDDEN DEATH", RED) if self.sudden else ("", WHITE)
+        self.shake = 0.3 if self.sudden else 0.0
+        self.active = set()            # hacker abilities switched on this round
+        self.scan = None
+        self.blocked = False           # FIREWALL turned a loss into a tie
+        self.token_gained = False
         self.player_hand.show('rock', idle=True)
         self.cpu_hand.show('rock', idle=True)
+        # the CPU picks NOW, before you do (using only past rounds)
+        self.opponent.choose()
+        self.prediction = self.opponent.prediction
+        self.hint = self.riddle_box.hint(self.opponent.plan, self.level) if SHOW_RIDDLES else None
+
+    @property
+    def beat(self):
+        return SHAKE_BEAT * (1.5 if self.sudden else 1.0)       # sudden death = slow motion
+
+    def match_over(self):
+        """True when the round that just ended finishes the match."""
+        if self.mode == 'endless':
+            return self.lives <= 0
+        if self.sudden:
+            return self.result != 'tie'
+        if self.round_number < TOTAL_ROUNDS:
+            return False
+        return not (SUDDEN_DEATH and self.player_score == self.computer_score)
 
     # ---------------- sound ----------------
     def sound(self, name):
@@ -686,18 +805,43 @@ class Game:
         platform.window.eval("document.fullscreenElement ? document.exitFullscreen()"
                              " : document.documentElement.requestFullscreen()")
 
+    # ---------------- hacker abilities ----------------
+    def use_ability(self, aid):
+        if self.state != 'choose' or aid in self.active or self.tokens <= 0:
+            self.deny = (aid, self.t)          # flash it red: can't use it now
+            return
+        self.tokens -= 1
+        self.active.add(aid)
+        self.glitch = 0.6
+        self.sound('beat')
+        if aid == 'scan':
+            self.scan = self.make_scan()
+
+    def make_scan(self):
+        """BRAIN SCAN: fuzzy bars of what the CPU is leaning towards.
+        The tallest bar is usually its real move - but not always."""
+        plan = self.opponent.plan
+        if random.random() < SCAN_TRUTH[self.level]:
+            top = plan
+        else:
+            top = random.choice([m for m in choices.values() if m != plan])
+        bars = {m: random.uniform(0.15, 0.45) for m in choices.values()}
+        bars[top] = random.uniform(0.62, 0.9)
+        return bars
+
     # ---------------- flow ----------------
     def play(self, key):
         if self.state != 'choose':
             return
         self.player_choice = choices[key]
-        # your AI from try1.py - same order as in get_decisions():
-        # it predicts and picks using only past rounds, THEN learns this move
-        self.prediction = read_prediction()
-        self.computer_choice = try1.smart_computer_choice()
-        try1.remember(self.player_choice)
+        self.computer_choice = self.opponent.plan     # picked at the start of the round
+        self.opponent.learn(self.player_choice)       # ...and only now it learns your move
         self.result = get_winner(self.player_choice, self.computer_choice)
+        if self.result == 'computer' and 'firewall' in self.active:
+            self.result, self.blocked = 'tie', True
         self.message = make_message(self.result, self.computer_choice)
+        if self.blocked:
+            self.message = f"FIREWALL blocked it. computer chose {self.computer_choice}"
 
         self.move_counts[self.player_choice] += 1
         guess = self.prediction[0]
@@ -712,8 +856,9 @@ class Game:
         self.sound('beat')                      # 1st pump: "ROCK..."
 
     def shoot(self):
-        self.player_hand.reveal(self.player_choice)
-        self.cpu_hand.reveal(self.computer_choice)
+        decode = DECODE_TIME * (2.0 if self.sudden else 1.0)
+        self.player_hand.reveal(self.player_choice, decode)
+        self.cpu_hand.reveal(self.computer_choice, decode)
         self.state = 'reveal'
         self.timer = 0.0
         self.glitch = 0.7
@@ -722,18 +867,28 @@ class Game:
 
     def finish_reveal(self):
         combo_breaker = False
+        double = 'overclock' in self.active
         if self.result == 'player':
-            self.player_score += 1
+            self.player_score += 2 if double else 1
+            self.round_wins += 1
             combo_breaker = self.cpu_streak >= STREAK_MIN      # you ended the CPU's streak
             self.player_streak += 1
             self.cpu_streak = 0
             self.best_streak = max(self.best_streak, self.player_streak)
+            if self.player_streak % TOKEN_STREAK == 0:
+                self.tokens += 1
+                self.token_gained = True
+            if self.mode == 'endless':
+                bonus = 50 * min(self.player_streak - 1, 4)
+                self.score += (100 + bonus) * (2 if double else 1)
             self.cpu_hand.dim = True
             self.sound('win')
         elif self.result == 'computer':
             self.computer_score += 1
             self.cpu_streak += 1
             self.player_streak = 0
+            if self.mode == 'endless':
+                self.lives -= 1
             self.player_hand.dim = True
             self.sound('lose')
         else:
@@ -743,6 +898,8 @@ class Game:
         if self.result == 'player':
             if combo_breaker:
                 text = "COMBO BREAKER"
+            elif double:
+                text = "OVERCLOCKED x2"
             elif self.player_streak >= STREAK_MIN:
                 text = f"HACK SUCCESSFUL x{self.player_streak}"
             else:
@@ -751,6 +908,8 @@ class Game:
         elif self.result == 'computer':
             text = f"HACK FAILED x{self.cpu_streak}" if self.cpu_streak >= STREAK_MIN else "HACK FAILED"
             self.stamp = (text, CPU_COLOR)
+        elif self.blocked:
+            self.stamp = ("FIREWALL HELD", PLAYER_COLOR)
         else:
             self.stamp = ("STALEMATE", GREY)
 
@@ -763,6 +922,18 @@ class Game:
             kind = self.result
         self.taunt = random.choice(TAUNTS[kind]).format(n=self.cpu_streak)
 
+        # endless: the AI gets harder every few wins
+        if self.mode == 'endless' and self.result == 'player' \
+                and self.round_wins % ENDLESS_LEVEL_UP == 0:
+            self.level_ups += 1
+            step = min(opponents.LEVELS.index(self.start_level) + self.level_ups,
+                       len(opponents.LEVELS) - 1)
+            self.level = opponents.LEVELS[step]
+            self.opponent = opponents.Opponent(self.level)
+            self.tokens += 1
+            self.token_gained = True
+            self.taunt = f"upgrading defences... {self.opponent.info['name']} online."
+
         # longer streaks = stronger glitch and shake
         streak = self.player_streak if self.result == 'player' else self.cpu_streak
         boost = 0.25 * min(streak, 4) if self.result != 'tie' and streak >= STREAK_MIN else 0.0
@@ -773,110 +944,463 @@ class Game:
         self.glitch = 1.0 + boost
         self.shake = 0.3 + 0.3 * boost
 
+    def unlock_fragment(self):
+        r = self.records
+        if r['fragments'] < len(FRAGMENTS):
+            r['fragments'] += 1
+            self.new_fragments.append(r['fragments'])
+
     def save_game(self):
         """Add this finished game to the saved records (once per game)."""
         if self.saved:
             return
         self.saved = True
         r = self.records
-        r['games'] += 1
-        if self.player_score > self.computer_score:
-            r['wins'] += 1
-        elif self.computer_score > self.player_score:
-            r['losses'] += 1
-        else:
-            r['draws'] += 1
+        r['rounds_won'] += self.round_wins
         self.new_best = self.best_streak > r['best_streak']
         r['best_streak'] = max(r['best_streak'], self.best_streak)
+        if self.mode == 'quick':
+            r['games'] += 1
+            if self.player_score > self.computer_score:
+                r['wins'] += 1
+                self.unlock_fragment()
+            elif self.computer_score > self.player_score:
+                r['losses'] += 1
+            else:
+                r['draws'] += 1
+        else:
+            for _ in range(self.level_ups):
+                self.unlock_fragment()
+            self.new_high = self.score > r['endless_best']
+            r['endless_best'] = max(r['endless_best'], self.score)
         save_records(r)
 
     def next_round(self):
-        if self.round_number >= TOTAL_ROUNDS:
+        if self.match_over():
             self.state = 'final'
             self.timer = 0.0
             self.glitch = 1.0
             self.save_game()
             return
+        if self.mode == 'quick' and self.round_number >= TOTAL_ROUNDS and not self.sudden:
+            self.sudden = True                  # tied after the last round
+            self.sound('shoot')
         self.round_number += 1
-        self.glitch = 0.5
+        self.glitch = 1.2 if self.sudden else 0.5
         self.new_round()
 
-    # ---------------- loop ----------------
+    def qualifies(self):
+        """Is this Endless score good enough for the top 10?"""
+        top = self.records['top']
+        return self.score > 0 and (len(top) < 10 or self.score > top[-1]['score'])
+
+    def after_final(self):
+        if self.timer < RESTART_DELAY:
+            return
+        if self.mode == 'endless' and self.qualifies():
+            self.letter_pos = 0
+            self.go('initials')
+        else:
+            self.start_match(self.mode, self.start_level)
+
+    def save_initials(self):
+        name = ''.join(self.letters)
+        entry = {'name': name, 'score': self.score, 'wave': self.round_number}
+        top = self.records['top']
+        top.append(entry)
+        top.sort(key=lambda e: -e['score'])
+        del top[10:]
+        self.highlight = top.index(entry) if entry in top else None
+        self.records['name'] = name
+        save_records(self.records)
+        self.go('rankings')
+
+    # ---------------- input ----------------
     def handle(self, e):
         if e.type == pygame.QUIT:
             pygame.quit()
             sys.exit()
-        if e.type == pygame.KEYDOWN:
-            if e.key == pygame.K_ESCAPE and not WEB:     # a browser tab can't be closed
-                pygame.quit()
-                sys.exit()
+        if e.type == pygame.KEYDOWN and self.scene != 'initials':
             if e.key == pygame.K_m:
                 self.toggle_mute()
+                return
             if e.key == pygame.K_f and WEB:
                 self.toggle_fullscreen()
-            ch = e.unicode
-            if self.state == 'choose' and ch in choices:
-                self.play(ch)
+                return
+        getattr(self, 'on_' + self.scene)(e)
+
+    @staticmethod
+    def is_back(e):
+        return e.type == pygame.KEYDOWN and (e.key in (pygame.K_ESCAPE, pygame.K_BACKSPACE)
+                                              or e.unicode.lower() == 'b')
+
+    def pick_from_list(self, e, count, index, rects):
+        """Arrow keys / number keys / mouse on a list of boxes.
+        Returns (new index, True if it was chosen)."""
+        if e.type == pygame.KEYDOWN:
+            if e.key in (pygame.K_UP, pygame.K_w):
+                return (index - 1) % count, False
+            if e.key in (pygame.K_DOWN, pygame.K_s):
+                return (index + 1) % count, False
+            if e.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_KP_ENTER):
+                return index, True
+            if e.unicode.isdigit() and 1 <= int(e.unicode) <= count:
+                return int(e.unicode) - 1, True
+        if e.type == pygame.MOUSEMOTION:
+            for i, r in enumerate(rects):
+                if r.collidepoint(e.pos):
+                    return i, False
+        if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+            for i, r in enumerate(rects):
+                if r.collidepoint(e.pos):
+                    return i, True
+        return index, False
+
+    def on_title(self, e):
+        if e.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN) and self.scene_t > 0.3:
+            if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE and not WEB:
+                pygame.quit()
+                sys.exit()
+            self.sound('beat')
+            self.go('menu')
+
+    def on_menu(self, e):
+        if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE and not WEB:
+            pygame.quit()
+            sys.exit()
+        items = self.menu_choices()
+        self.menu_index, chosen = self.pick_from_list(e, len(items), self.menu_index,
+                                                      self.menu_rects(len(items)))
+        if not chosen:
+            return
+        self.sound('beat')
+        choice = items[self.menu_index][0]
+        if choice == 'quick':
+            self.go('difficulty')
+        elif choice == 'endless':
+            self.start_match('endless', 'easy')
+        else:
+            self.highlight = None
+            self.go(choice)
+
+    def on_difficulty(self, e):
+        if self.is_back(e):
+            self.go('menu')
+            return
+        items = self.diff_choices()
+        self.diff_index, chosen = self.pick_from_list(e, len(items), self.diff_index,
+                                                      self.menu_rects(len(items), top=230, step=90))
+        if chosen:
+            self.sound('beat')
+            self.start_match('quick', items[self.diff_index][0])
+
+    def on_match(self, e):
+        if self.is_back(e) or (e.type == pygame.MOUSEBUTTONDOWN and e.button == 1
+                               and self.menu_button.collidepoint(e.pos)):
+            self.sudden = False
+            self.go('menu')
+            return
+        if e.type == pygame.KEYDOWN:
+            ch = e.unicode.lower()
+            if self.state == 'choose':
+                if ch in choices:
+                    self.play(ch)
+                for key, aid, _, _ in ABILITIES:
+                    if ch == key:
+                        self.use_ability(aid)
             elif self.state == 'result':
-                if ch in choices and self.round_number < TOTAL_ROUNDS:
+                if ch in choices and not self.match_over():
                     self.next_round()
                     self.play(ch)
                 elif e.key in (pygame.K_SPACE, pygame.K_RETURN):
                     self.next_round()
-            elif self.state == 'final' and e.key not in (pygame.K_m, pygame.K_f, pygame.K_ESCAPE):
-                self.restart()                      # any key plays again
+            elif self.state == 'final' and e.key not in (pygame.K_m, pygame.K_f):
+                self.after_final()                  # any key plays again
         if e.type == pygame.MOUSEBUTTONDOWN:
             if self.state == 'final':
-                self.restart()                      # any mouse button plays again
+                self.after_final()                  # any mouse button plays again
             elif e.button != 1:
                 return
             elif self.state == 'choose':
                 for b in self.buttons:
                     if b.rect.collidepoint(e.pos):
                         self.play(b.key)
+                for aid, r in self.ability_rects.items():
+                    if r.collidepoint(e.pos):
+                        self.use_ability(aid)
             elif self.state == 'result':
                 self.next_round()
 
-    def restart(self):
-        if self.timer >= RESTART_DELAY:
-            self.reset()
+    def on_initials(self, e):
+        p = self.letter_pos
+        if e.type == pygame.KEYDOWN:
+            ch = e.unicode.upper()
+            if e.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                self.save_initials()
+            elif e.key == pygame.K_BACKSPACE:
+                self.letter_pos = max(0, p - 1)
+            elif e.key == pygame.K_LEFT:
+                self.letter_pos = (p - 1) % 3
+            elif e.key == pygame.K_RIGHT:
+                self.letter_pos = (p + 1) % 3
+            elif e.key in (pygame.K_UP, pygame.K_DOWN):
+                step = 1 if e.key == pygame.K_UP else -1
+                i = LETTERS.find(self.letters[p])
+                self.letters[p] = LETTERS[(i + step) % len(LETTERS)]
+            elif ch and ch in LETTERS:
+                self.letters[p] = ch
+                self.letter_pos = min(2, p + 1)
+        if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+            if self.ok_rect().collidepoint(e.pos):
+                self.save_initials()
+            for i, r in enumerate(self.letter_rects()):
+                if r.collidepoint(e.pos):          # top half = next letter, bottom half = previous
+                    step = 1 if e.pos[1] < r.centery else -1
+                    j = LETTERS.find(self.letters[i])
+                    self.letters[i] = LETTERS[(j + step) % len(LETTERS)]
+                    self.letter_pos = i
 
+    def on_rankings(self, e):
+        if e.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN) and self.scene_t > 0.4:
+            self.go('menu')
+
+    on_archive = on_rankings
+
+    # ---------------- update ----------------
     def update(self, dt):
         self.t += dt
         self.timer += dt
+        self.scene_t += dt
         self.glitch = max(0.0, self.glitch - dt * 1.8)
         self.shake = max(0.0, self.shake - dt)
         if random.random() < 0.004:
             self.glitch = random.uniform(0.3, 0.5)
         for st in self.streaks:
             st.update(dt)
+        if self.scene != 'match':
+            return
         self.player_hand.update(dt)
         self.cpu_hand.update(dt)
         if self.state == 'shake':
-            if self.timer >= SHAKE_BEAT * SHAKE_BEATS:
+            if self.timer >= self.beat * SHAKE_BEATS:
                 self.shoot()
             else:
                 # tiny screen bump + beat sound every time the fists land
-                beat_pos = (self.timer % SHAKE_BEAT) / SHAKE_BEAT
-                if beat_pos < dt / SHAKE_BEAT and self.timer > dt:
+                beat_pos = (self.timer % self.beat) / self.beat
+                if beat_pos < dt / self.beat and self.timer > dt:
                     self.shake = 0.12
                     self.sound('beat')          # 2nd and 3rd pump
-        elif self.state == 'reveal' and self.timer >= DECODE_TIME + 0.05:
+        elif self.state == 'reveal' and self.timer >= DECODE_TIME * (2 if self.sudden else 1) + 0.05:
             self.finish_reveal()
-        elif self.state == 'result' and self.round_number >= TOTAL_ROUNDS and self.timer >= FINAL_DELAY:
-            self.next_round()                   # last round done -> final screen by itself
+        elif self.state == 'result' and self.match_over() and self.timer >= FINAL_DELAY:
+            self.next_round()                   # match over -> final screen by itself
 
     def fist_motion(self):
         """Up-down pump for the shake: returns (lift_pixels, tilt_degrees)."""
         if self.state == 'shake':
-            phase = (self.timer % SHAKE_BEAT) / SHAKE_BEAT
+            phase = (self.timer % self.beat) / self.beat
             up = math.sin(phase * math.pi)            # 0 -> 1 -> 0 each beat
             return -70 * up, 16 * up
         if self.state == 'choose':                     # gentle idle bob
             return 6 * math.sin(self.t * 2.2), 0
         return 0, 0
 
-    # ---------------- drawing ----------------
+    # ---------------- drawing: shared ----------------
+    def draw(self):
+        s = self.canvas
+        s.fill(BG)
+        for st in self.streaks:
+            st.draw(s)
+        getattr(self, 'draw_' + self.scene)()
+
+        if self.scene == 'match' and self.sudden:       # sudden death: pulsing red tint
+            tint = pygame.Surface((W, H))
+            tint.fill((int(40 + 25 * math.sin(self.t * 5)), 0, 0))
+            s.blit(tint, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+
+        # small key hints in the bottom corners
+        snd = self.f_tiny.render("[M] SOUND OFF" if self.muted else "[M] SOUND ON", True, GREY)
+        s.blit(snd, (W - snd.get_width() - 24, H - 26))
+        if WEB:
+            fs = self.f_tiny.render("[F] FULLSCREEN", True, GREY)
+            s.blit(fs, (24, H - 26))
+
+        block_glitch(s, self.glitch * GLITCH_STRENGTH)
+        s.blit(self.overlay, (0, 0))
+
+        # screen shake
+        ox = random.uniform(-1, 1) * self.shake * 30 * SCREEN_SHAKE
+        oy = random.uniform(-1, 1) * self.shake * 30 * SCREEN_SHAKE
+        self.screen.fill(BG)
+        self.screen.blit(s, (ox, oy))
+        pygame.display.flip()
+
+    def blink(self, speed=2):
+        return int(self.t * speed) % 2 == 0
+
+    def screen_title(self, text, sub=None, y=70):
+        glitch_text(self.canvas, text, self.f_title, WHITE, (W // 2, y), self.glitch)
+        if sub:
+            t = self.f_tiny.render(sub, True, GREY)
+            self.canvas.blit(t, t.get_rect(center=(W // 2, y + 34)))
+
+    def draw_list(self, items, index, rects):
+        s = self.canvas
+        mouse = pygame.mouse.get_pos()
+        for i, ((_, label, about), r) in enumerate(zip(items, rects)):
+            on = i == index or r.collidepoint(mouse)
+            shade = pygame.Surface(r.size, pygame.SRCALPHA)
+            shade.fill((236, 236, 236, 255) if on else (6, 6, 7, 215))
+            s.blit(shade, r)
+            fg = BG if on else WHITE
+            if not on:
+                corner_brackets(s, r, GREY, 14, 2)
+            s.blit(self.f_tiny.render(f"[{i + 1}]", True, scale(fg, 0.7) if on else GREY),
+                   (r.x + 16, r.y + 10))
+            s.blit(self.f_mid.render(label, True, fg), (r.x + 60, r.y + 8))
+            s.blit(self.f_tiny.render(about, True, DIM if on else GREY), (r.x + 60, r.y + 40))
+            if on:
+                arrow = self.f_mid.render(">", True, BG)
+                s.blit(arrow, (r.right - 34, r.y + 16))
+
+    def footer(self, text):
+        if self.blink():
+            t = self.f_small.render(text, True, GREY)
+            self.canvas.blit(t, t.get_rect(center=(W // 2, H - 60)))
+
+    # ---------------- drawing: screens ----------------
+    def draw_title(self):
+        s = self.canvas
+        glitch_text(s, "ROCK // PAPER // SCISSORS", self.f_huge, WHITE, (W // 2, 170),
+                    max(self.glitch, 0.15))
+        inverted_label(s, " v2 :: BREACH MODE ", self.f_small, CPU_COLOR, center=(W // 2, 230))
+        typed = int(self.scene_t * 45)                  # 45 letters per second
+        y = 320
+        for line in INTRO:
+            shown = line[:max(0, typed)]
+            typed -= len(line) + 8                      # short pause between lines
+            if shown:
+                s.blit(self.f_small.render(shown, True, WHITE), (W // 2 - 300, y))
+            y += 34
+        if typed > 0 and self.blink():
+            glitch_text(s, "PRESS ANY KEY", self.f_mid, WHITE, (W // 2, 540), 0)
+        tip = self.f_tiny.render("1 / 2 / 3 = rock / paper / scissors     Q / W / E = hacker abilities",
+                                 True, DIM)
+        s.blit(tip, tip.get_rect(center=(W // 2, H - 60)))
+
+    def draw_menu(self):
+        s = self.canvas
+        self.screen_title("ROCK // PAPER // SCISSORS", f"> breach.rps  //  node {self.ip}")
+        items = self.menu_choices()
+        self.draw_list(items, self.menu_index, self.menu_rects(len(items)))
+        title, _ = rank_of(self.records['rounds_won'])
+        info = self.f_small.render(f"RANK: {title}    //    ARCHIVE {self.records['fragments']}"
+                                   f"/{len(FRAGMENTS)}", True, WHITE)
+        s.blit(info, info.get_rect(center=(W // 2, 540)))
+        hint = "UP / DOWN + ENTER, a number, or click" + ("" if WEB else "      ESC >> quit")
+        self.footer(hint)
+
+    def draw_difficulty(self):
+        self.screen_title("CHOOSE YOUR TARGET", "who are you hacking?")
+        items = self.diff_choices()
+        self.draw_list(items, self.diff_index, self.menu_rects(len(items), top=230, step=90))
+        self.footer("ENTER / click to start      B >> back")
+
+    def draw_initials(self):
+        s = self.canvas
+        self.screen_title("NEW HIGH SCORE", f"score {self.score}  //  wave {self.round_number}", y=120)
+        for i, r in enumerate(self.letter_rects()):
+            on = i == self.letter_pos
+            pygame.draw.rect(s, WHITE if on else GREY, r, 3 if on else 1)
+            glitch_text(s, self.letters[i], self.f_big, WHITE, r.center, 0.1 if on else 0)
+            for dy, arrow in ((-14, "▲"), (14, "▼")):
+                a = self.f_small.render(arrow, True, WHITE if on else DIM)
+                s.blit(a, a.get_rect(center=(r.centerx, (r.y if dy < 0 else r.bottom) + dy)))
+        ok = self.ok_rect()
+        pygame.draw.rect(s, WHITE, ok)
+        t = self.f_mid.render("OK", True, BG)
+        s.blit(t, t.get_rect(center=ok.center))
+        self.footer("type your initials (or UP / DOWN), ENTER to save")
+
+    def draw_rankings(self):
+        s = self.canvas
+        self.screen_title("RANKINGS", "saved on this device")
+        # ---- left: top 10 endless scores ----
+        box = pygame.Rect(80, 160, 500, 420)
+        corner_brackets(s, box, WHITE, 22, 2)
+        inverted_label(s, " TOP 10  //  ENDLESS ", self.f_small, WHITE, (box.x, box.y - 30))
+        top = self.records['top']
+        heads = self.f_tiny.render("#     NAME      SCORE      WAVE", True, GREY)
+        s.blit(heads, (box.x + 30, box.y + 20))
+        for i in range(10):
+            y = box.y + 48 + i * 35
+            if i < len(top):
+                e = top[i]
+                line = f"{i + 1:<5} {e['name']:<9} {e['score']:>6}      {e['wave']:>3}"
+                col = WHITE
+            else:
+                line, col = f"{i + 1:<5} ---", DIM
+            if i == self.highlight and self.blink(4):
+                inverted_label(s, line, self.f_small, PLAYER_COLOR, (box.x + 22, y - 3))
+            else:
+                s.blit(self.f_small.render(line, True, col), (box.x + 30, y))
+        # ---- right: your rank and records ----
+        box2 = pygame.Rect(640, 160, 460, 420)
+        corner_brackets(s, box2, CPU_COLOR, 22, 2)
+        inverted_label(s, " YOUR HACKER RANK ", self.f_small, CPU_COLOR, (box2.x, box2.y - 30))
+        r = self.records
+        title, nxt = rank_of(r['rounds_won'])
+        glitch_text(s, title, self.f_word, CPU_COLOR, (box2.centerx, box2.y + 60), self.glitch * 0.5)
+        bar = pygame.Rect(box2.x + 40, box2.y + 110, box2.w - 80, 14)
+        pygame.draw.rect(s, DIM, bar, 1)
+        if nxt:
+            prev = max(need for need, _ in RANKS if need <= r['rounds_won'])
+            part = (r['rounds_won'] - prev) / (nxt - prev)
+            sub = f"{r['rounds_won']} rounds won  //  {nxt - r['rounds_won']} more to rank up"
+        else:
+            part, sub = 1.0, f"{r['rounds_won']} rounds won  //  max rank"
+        tile_fill(s, self.tiles, pygame.Rect(bar.x, bar.y, max(2, int(bar.w * part)), bar.h),
+                  'hatch', CPU_COLOR, 7)
+        t = self.f_tiny.render(sub, True, GREY)
+        s.blit(t, t.get_rect(center=(box2.centerx, bar.bottom + 18)))
+        rate = round(100 * r['wins'] / r['games']) if r['games'] else 0
+        rows = [("quick matches played", r['games']), ("quick matches won", r['wins']),
+                ("win rate", f"{rate}%"), ("best streak", r['best_streak']),
+                ("best endless score", r['endless_best']),
+                ("archive decrypted", f"{r['fragments']}/{len(FRAGMENTS)}")]
+        for i, (k, v) in enumerate(rows):
+            y = box2.y + 190 + i * 34
+            s.blit(self.f_small.render(k, True, GREY), (box2.x + 40, y))
+            val = self.f_small.render(str(v), True, WHITE)
+            s.blit(val, (box2.right - 40 - val.get_width(), y))
+        self.footer("ANY KEY / CLICK >> back")
+
+    def draw_archive(self):
+        s = self.canvas
+        n = self.records['fragments']
+        self.screen_title("ARCHIVE", f"the AI's private log  //  {n}/{len(FRAGMENTS)} decrypted")
+        box = pygame.Rect(130, 150, W - 260, 400)
+        corner_brackets(s, box, WHITE, 22, 2)
+        for i, text in enumerate(FRAGMENTS):
+            y = box.y + 30 + i * 60
+            tag = f"FRAGMENT {i + 1:02d}"
+            if i < n:
+                inverted_label(s, f" {tag} ", self.f_tiny, WHITE, (box.x + 30, y))
+                s.blit(self.f_small.render(text, True, WHITE), (box.x + 30, y + 24))
+            else:
+                s.blit(self.f_tiny.render(f" {tag}  [ENCRYPTED]", True, DIM), (box.x + 30, y))
+                junk = ' '.join(fake_hex(4) for _ in range(12))
+                s.blit(self.f_small.render(junk, True, DIM), (box.x + 30, y + 24))
+        if n >= len(FRAGMENTS):
+            inverted_label(s, " ARCHIVE COMPLETE. THANKS FOR PLAYING. ", self.f_small, CPU_COLOR,
+                           center=(W // 2, box.bottom + 24))
+        else:
+            t = self.f_tiny.render("win quick matches (or level up in endless) to decrypt more",
+                                   True, GREY)
+            s.blit(t, t.get_rect(center=(W // 2, box.bottom + 24)))
+        self.footer("ANY KEY / CLICK >> back")
+
+    # ---------------- drawing: the match ----------------
     def draw_panel(self, rect, label, ident, color, score, choice, hand, winner,
                    line2, streak, ident_color=GREY):
         s = self.canvas
@@ -918,11 +1442,28 @@ class Game:
     def draw_header(self):
         s = self.canvas
         glitch_text(s, "ROCK // PAPER // SCISSORS", self.f_title, WHITE, (W // 2, 38), self.glitch)
-        left = self.f_tiny.render(f"> breach.rps  //  node {self.ip}", True, GREY)
-        s.blit(left, (24, 16))
+        mb = self.menu_button
+        pygame.draw.rect(s, WHITE if mb.collidepoint(pygame.mouse.get_pos()) else GREY, mb, 1)
+        t = self.f_tiny.render("< MENU [B]", True, WHITE)
+        s.blit(t, t.get_rect(center=mb.center))
+        left = self.f_tiny.render(f"node {self.ip}", True, GREY)
+        s.blit(left, (mb.right + 12, 14))
         right = self.f_tiny.render(
             f"0x{fake_hex(8) if self.glitch > 0.2 else 'DEADC0DE'}  //  link stable", True, GREY)
         s.blit(right, (W - right.get_width() - 24, 16))
+
+        if self.mode == 'endless':
+            text = f"WAVE {self.round_number}  //  SCORE {self.score}"
+            rnd = self.f_small.render(text, True, WHITE)
+            s.blit(rnd, rnd.get_rect(center=(W // 2, 74)))
+            hearts = self.f_mid.render("♥ " * self.lives + "· " * (ENDLESS_LIVES - self.lives),
+                                       True, PLAYER_COLOR)
+            s.blit(hearts, hearts.get_rect(center=(W // 2, 100)))
+            return
+        if self.sudden:
+            if self.blink(3):
+                inverted_label(s, " SUDDEN DEATH ", self.f_small, RED, center=(W // 2, 78))
+            return
         rnd = self.f_small.render(f"ROUND {min(self.round_number, TOTAL_ROUNDS)}/{TOTAL_ROUNDS}", True, WHITE)
         s.blit(rnd, rnd.get_rect(center=(W // 2, 74)))
         done_n = self.round_number - (0 if self.state in ('result', 'final') else 1)
@@ -936,7 +1477,7 @@ class Game:
                            (0, 0, min(8, pr.right - xx), 8))
 
     def prediction_line(self):
-        """Second line of the CPU panel: what your AI predicted this round."""
+        """Second line of the CPU panel: what the AI predicted this round."""
         guess, confidence = self.prediction
         if self.state in ('shake', 'reveal'):
             return f"PREDICTED : {fake_hex(6)}", GREY
@@ -948,12 +1489,12 @@ class Game:
         return (f"PREDICTED : {guess.upper()} {int(confidence * 100)}%  {'[HIT]' if hit else '[MISS]'}",
                 CPU_COLOR if hit else GREY)
 
-    def draw_stamp(self):
+    def draw_stamp(self, y=340):
         s = self.canvas
         text, bg = self.stamp
         jitter = random.randint(-6, 6) if self.timer < 0.3 else 0
         t = self.f_huge.render(text, True, BG)
-        box = t.get_rect(center=(W // 2 + jitter, 355)).inflate(40, 16)
+        box = t.get_rect(center=(W // 2 + jitter, y)).inflate(40, 16)
         shadow = box.move(10, 10)
         tile = self.tiles.get('lighthatch', scale(bg, 0.6), 10)
         for yy in range(shadow.y, shadow.bottom, 10):
@@ -962,22 +1503,64 @@ class Game:
         pygame.draw.rect(s, bg, box)
         s.blit(t, t.get_rect(center=box.center))
 
-    def draw(self):
+    def draw_scan(self, cx, cy):
+        """BRAIN SCAN result between the two panels: flickering, fuzzy bars."""
         s = self.canvas
-        s.fill(BG)
-        for st in self.streaks:
-            st.draw(s)
+        head = self.f_tiny.render("CPU INTENT", True, CPU_COLOR)
+        s.blit(head, head.get_rect(center=(cx, cy - 92)))
+        for i, (move, v) in enumerate(self.scan.items()):
+            y = cy - 70 + i * 50
+            s.blit(self.f_tiny.render(move.upper(), True, WHITE), (cx - 70, y))
+            noisy = max(0.05, min(1.0, v + 0.07 * math.sin(self.t * 9 + i * 2.1)))
+            bar = pygame.Rect(cx - 70, y + 18, int(140 * noisy), 14)
+            pygame.draw.rect(s, DIM, (cx - 70, y + 18, 140, 14), 1)
+            tile_fill(s, self.tiles, bar, 'dither', CPU_COLOR, 7)
+        sub = self.f_tiny.render("signal: fuzzy", True, GREY)
+        s.blit(sub, sub.get_rect(center=(cx, cy + 92)))
+
+    def draw_abilities(self):
+        s = self.canvas
+        x = min(r.x for r in self.ability_rects.values())
+        tok = self.f_tiny.render(f"TOKENS {'◆' * self.tokens if self.tokens <= 6 else '◆x' + str(self.tokens)}",
+                                 True, WHITE if self.tokens else GREY)
+        s.blit(tok, (x - tok.get_width() - 16, H - 26))
+        mouse = pygame.mouse.get_pos()
+        deny_aid, deny_t = getattr(self, 'deny', (None, -9))
+        for key, aid, label, _ in ABILITIES:
+            r = self.ability_rects[aid]
+            if aid in self.active:
+                pygame.draw.rect(s, PLAYER_COLOR, r)
+                fg = BG
+            else:
+                denied = aid == deny_aid and self.t - deny_t < 0.4
+                usable = self.tokens > 0
+                col = RED if denied else (WHITE if usable and r.collidepoint(mouse) else
+                                          (GREY if usable else DIM))
+                pygame.draw.rect(s, col, r, 1)
+                fg = col
+            t = self.f_tiny.render(f"[{key.upper()}] {label}", True, fg)
+            s.blit(t, t.get_rect(center=r.center))
+
+    def draw_match(self):
+        s = self.canvas
         self.draw_header()
 
-        pw, ph = 440, 410
+        pw, ph = 440, 380
         left = pygame.Rect(70, 150, pw, ph)
         right = pygame.Rect(W - 70 - pw, 150, pw, ph)
         signature = (f"SIGNATURE : 0x{'%06X' % (self.player_score * 4099 + 0xA11)}", GREY)
         self.draw_panel(left, PLAYER_NAME, "ID: PLAYER_01  //  STATUS: ONLINE", PLAYER_COLOR,
                         self.player_score, self.player_choice, self.player_hand,
                         self.result == 'player', signature, self.player_streak)
+        # hacker abilities switched on this round: badges above your panel
+        x = left.right
+        for _, aid, label, _ in reversed(ABILITIES):
+            if aid in self.active:
+                x -= self.f_tiny.size(label)[0] + 16 + 8          # label width + padding + gap
+                inverted_label(s, label, self.f_tiny, PLAYER_COLOR, (x, left.y - 28))
 
-        cpu_ident, cpu_ident_col = "ID: CPU_UNIT  //  THREAT: HIGH", GREY
+        info = self.opponent.info
+        cpu_ident, cpu_ident_col = f"ID: {info['name']}  //  THREAT: {info['threat']}", GREY
         if SHOW_TAUNTS and self.state == 'result' and self.taunt:
             typed = int(self.timer * 40)                     # "types" 40 letters per second
             cursor = "_" if typed < len(self.taunt) or int(self.t * 3) % 2 else ""
@@ -994,68 +1577,80 @@ class Game:
         stamp_on = self.state == 'result' and self.timer < 1.4
         if self.state == 'shake':
             words = ["ROCK...", "PAPER...", "SCISSORS..."]
-            idx = min(int(self.timer / SHAKE_BEAT), 2)
-            pop = 1.0 - (self.timer % SHAKE_BEAT) / SHAKE_BEAT
+            idx = min(int(self.timer / self.beat), 2)
+            pop = 1.0 - (self.timer % self.beat) / self.beat
             glitch_text(s, words[idx], self.f_word, WHITE, (W // 2, center_y), 0.15 * pop)
         elif self.state == 'reveal':
             inverted_label(s, " SHOOT! ", self.f_word, WHITE, center=(W // 2, center_y))
+        elif self.state == 'choose' and self.scan:
+            self.draw_scan(W // 2, center_y)
         elif not stamp_on:
-            vs_glitch = self.glitch * 0.6
-            glitch_text(s, "VS", self.f_big, WHITE, (W // 2, center_y), vs_glitch)
+            glitch_text(s, "VS", self.f_big, WHITE, (W // 2, center_y), self.glitch * 0.6)
 
-        msg_y = H - 128
+        line_a, line_b = H - 166, H - 134
         if self.state == 'result':
             if stamp_on:
                 self.draw_stamp()
             col = {'player': PLAYER_COLOR, 'computer': CPU_COLOR, 'tie': GREY}[self.result]
-            glitch_text(s, f"> {self.message}", self.f_mid, col, (W // 2, msg_y), self.glitch * 0.6)
-            hint = "SPACE / CLICK  >> next round" if self.round_number < TOTAL_ROUNDS \
-                else "compiling final result..."
-            if int(self.t * 2) % 2 == 0:
-                h = self.f_tiny.render(hint, True, GREY)
-                s.blit(h, h.get_rect(center=(W // 2, H - 18)))
+            if self.blocked:
+                col = PLAYER_COLOR
+            glitch_text(s, f"> {self.message}", self.f_mid, col, (W // 2, line_a), self.glitch * 0.6)
+            if self.hint:
+                why = self.f_small.render(f"riddle decoded: {self.hint[1]}", True, GREY)
+                s.blit(why, why.get_rect(center=(W // 2, line_b)))
+            if not self.match_over():
+                hint = "SPACE / CLICK  >> next round"
+                if self.mode == 'quick' and self.round_number >= TOTAL_ROUNDS and not self.sudden:
+                    hint = "TIED!  SPACE / CLICK  >> SUDDEN DEATH"
+                if self.blink():
+                    h = self.f_tiny.render(hint, True, GREY)
+                    s.blit(h, h.get_rect(center=(W // 2, H - 18)))
+                if self.token_gained:
+                    inverted_label(s, " +1 TOKEN ", self.f_tiny, PLAYER_COLOR,
+                                   center=(W // 2 + 210, H - 18))
         elif self.state == 'choose':
-            cursor = '_' if int(self.t * 2) % 2 == 0 else ' '
-            glitch_text(s, f"> {self.message}{cursor}", self.f_mid, WHITE, (W // 2, msg_y), 0)
+            if self.sudden and self.timer < 1.6:
+                self.draw_stamp()
+            cursor = '_' if self.blink() else ' '
+            if self.hint:
+                label = self.f_tiny.render("> intercepted CPU thought:", True, GREY)
+                s.blit(label, label.get_rect(center=(W // 2, line_a)))
+                text = f'"{self.hint[0]}"{cursor}'
+                font = self.f_mid if self.f_mid.size(text)[0] < W - 120 else self.f_small
+                glitch_text(s, text, font, WHITE, (W // 2, line_b), 0)
+            else:
+                msg = "> no signal intercepted. trust your gut" if SHOW_RIDDLES else "> select payload"
+                glitch_text(s, msg + cursor, self.f_mid, WHITE, (W // 2, line_a + 16), 0)
+            self.draw_abilities()
 
         mouse = pygame.mouse.get_pos()
         for b in self.buttons:
             b.draw(s, self.f_mid, self.f_small, self.tiles, b.rect.collidepoint(mouse),
                    self.state == 'choose')
 
-        # small key hints in the bottom corners
-        snd = self.f_tiny.render("[M] SOUND OFF" if self.muted else "[M] SOUND ON", True, GREY)
-        s.blit(snd, (W - snd.get_width() - 24, H - 26))
-        if WEB:
-            fs = self.f_tiny.render("[F] FULLSCREEN", True, GREY)
-            s.blit(fs, (24, H - 26))
-
         if self.state == 'final':
             self.draw_final()
-
-        block_glitch(s, self.glitch * GLITCH_STRENGTH)
-        s.blit(self.overlay, (0, 0))
-
-        # screen shake
-        ox = random.uniform(-1, 1) * self.shake * 30 * SCREEN_SHAKE
-        oy = random.uniform(-1, 1) * self.shake * 30 * SCREEN_SHAKE
-        self.screen.fill(BG)
-        self.screen.blit(s, (ox, oy))
-        pygame.display.flip()
 
     def draw_final(self):
         s = self.canvas
         ov = pygame.Surface((W, H), pygame.SRCALPHA)
         ov.fill((0, 0, 0, 215))
         s.blit(ov, (0, 0))
-        if self.player_score > self.computer_score:
-            title, col, tag = "You won the game!", PLAYER_COLOR, "SYSTEM OWNED"
-        elif self.computer_score > self.player_score:
-            title, col, tag = "Computer won the game!", CPU_COLOR, "ACCESS DENIED"
+        if self.mode == 'endless':
+            title = f"you survived {self.round_number} waves and won {self.round_wins} rounds"
+            col, tag = CPU_COLOR, "CONNECTION TERMINATED"
+            score_line = f"SCORE {self.score}"
         else:
-            title, col, tag = "The game is a draw!", GREY, "CONNECTION LOST"
+            how = " in SUDDEN DEATH" if self.sudden else ""
+            if self.player_score > self.computer_score:
+                title, col, tag = f"You won the game{how}!", PLAYER_COLOR, "SYSTEM OWNED"
+            elif self.computer_score > self.player_score:
+                title, col, tag = f"Computer won the game{how}!", CPU_COLOR, "ACCESS DENIED"
+            else:
+                title, col, tag = "The game is a draw!", GREY, "CONNECTION LOST"
+            score_line = f"{PLAYER_NAME} {self.player_score}  :  {self.computer_score} {CPU_NAME}"
         if SHOW_STATS:
-            box = pygame.Rect(W // 2 - 450, H // 2 - 250, 900, 500)
+            box = pygame.Rect(W // 2 - 450, H // 2 - 270, 900, 540)
             tag_y, title_y, score_y = box.y + 58, box.y + 112, box.y + 172
         else:
             box = pygame.Rect(W // 2 - 400, H // 2 - 160, 800, 320)
@@ -1064,19 +1659,38 @@ class Game:
         inverted_label(s, " === FINAL RESULT === ", self.f_small, col, (box.x, box.y - 30))
         glitch_text(s, tag, self.f_huge, col, (W // 2, tag_y), max(self.glitch, 0.12))
         glitch_text(s, title, self.f_mid, WHITE, (W // 2, title_y), 0)
-        glitch_text(s, f"{PLAYER_NAME} {self.player_score}  :  {self.computer_score} {CPU_NAME}",
-                    self.f_big, WHITE, (W // 2, score_y), 0)
+        glitch_text(s, score_line, self.f_big, WHITE, (W // 2, score_y), 0)
         if SHOW_STATS:
             self.draw_stats(box)
-        if int(self.t * 2) % 2 == 0:
-            hint = "ANY KEY / CLICK >> play again" if WEB \
-                else "ANY KEY / CLICK >> play again     ESC >> disconnect"
+        self.draw_fragment(box)
+        if self.blink():
+            again = "save your score" if self.mode == 'endless' and self.qualifies() else "play again"
+            hint = f"ANY KEY / CLICK >> {again}      [B] >> menu"
             glitch_text(s, hint, self.f_small, GREY, (W // 2, box.bottom - 24), 0)
 
-    def draw_stats(self, box):
-        """Final screen, bottom part: 3 columns - your moves / AI accuracy / saved records."""
+    def draw_fragment(self, box):
+        """Final screen: the story fragment this game decrypted (if any)."""
         s = self.canvas
-        top = box.y + 232
+        y = box.bottom - 92
+        if self.new_fragments:
+            n = self.new_fragments[-1]
+            inverted_label(s, f" FRAGMENT {n:02d}/{len(FRAGMENTS):02d} DECRYPTED ", self.f_tiny,
+                           PLAYER_COLOR, center=(W // 2, y))
+            t = self.f_small.render(FRAGMENTS[n - 1], True, WHITE)
+            s.blit(t, t.get_rect(center=(W // 2, y + 26)))
+        else:
+            if self.mode == 'quick':
+                need = "win a match"
+            else:
+                need = f"win {ENDLESS_LEVEL_UP} rounds (a level-up)"
+            t =self.f_tiny.render(f"{need} to decrypt the next fragment  //  ARCHIVE "
+                                   f"{self.records['fragments']}/{len(FRAGMENTS)}", True, GREY)
+            s.blit(t, t.get_rect(center=(W // 2, y + 10)))
+
+    def draw_stats(self, box):
+        """Final screen, middle part: 3 columns - your moves / AI accuracy / saved records."""
+        s = self.canvas
+        top = box.y + 222
         pygame.draw.line(s, DIM, (box.x + 40, top), (box.right - 40, top), 1)
         col_w = (box.w - 80) // 3
         x1, x2, x3 = box.x + 40, box.x + 40 + col_w, box.x + 40 + 2 * col_w
@@ -1098,7 +1712,7 @@ class Game:
             pct = self.f_tiny.render(f"{round(100 * n / total)}%", True, c)
             s.blit(pct, (x1 + 214, row_y))
 
-        # ---- column 2: how well your AI read you ----
+        # ---- column 2: how well the AI read you ----
         heading("AI READ YOU", x2 + 20)
         if self.ai_guesses:
             big = f"{self.ai_hits}/{self.ai_guesses}"
@@ -1112,16 +1726,23 @@ class Game:
         # ---- column 3: saved records ----
         r = self.records
         heading("RECORD  (saved on this device)", x3 + 10)
-        rate = round(100 * r['wins'] / r['games']) if r['games'] else 0
-        rows = [("games played", r['games']), ("wins", r['wins']),
-                ("win rate", f"{rate}%"), ("best streak", r['best_streak'])]
+        rank, _ = rank_of(r['rounds_won'])
+        if self.mode == 'endless':
+            rows = [("best score", r['endless_best']), ("this run", self.score),
+                    ("best streak", r['best_streak']), ("rank", rank)]
+            new = " NEW HIGH SCORE! " if getattr(self, 'new_high', False) else None
+        else:
+            rate = round(100 * r['wins'] / r['games']) if r['games'] else 0
+            rows = [("games played", r['games']), ("win rate", f"{rate}%"),
+                    ("best streak", r['best_streak']), ("rank", rank)]
+            new = " NEW BEST STREAK! " if self.new_best else None
         for i, (k, v) in enumerate(rows):
             row_y = y + 28 + i * 20
             s.blit(self.f_tiny.render(k, True, GREY), (x3 + 10, row_y))
             val = self.f_tiny.render(str(v), True, WHITE)
             s.blit(val, (x3 + col_w - 20 - val.get_width(), row_y))
-        if self.new_best and int(self.t * 4) % 2 == 0:
-            inverted_label(s, " NEW BEST STREAK! ", self.f_tiny, PLAYER_COLOR, (x3 + 10, y + 112))
+        if new and self.blink(4):
+            inverted_label(s, new, self.f_tiny, PLAYER_COLOR, (x3 + 10, y + 112))
 
     async def run(self):
         while True:

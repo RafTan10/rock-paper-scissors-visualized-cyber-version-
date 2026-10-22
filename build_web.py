@@ -18,7 +18,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 STAGE = os.path.join(HERE, "build", "rps")
 
-FILES = ["main.py", "rps_visual.py", "try1.py"]
+FILES = ["main.py", "rps_visual.py", "try1.py", "opponents.py", "riddles.py", "story.py"]
 FOLDERS = {"fonts": (".ttf", ".txt"), "sounds": (".ogg",)}
 
 shutil.rmtree(STAGE, ignore_errors=True)

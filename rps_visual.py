@@ -9,6 +9,7 @@ Controls:
     Q / W / E  or click            -> hacker abilities (BRAIN SCAN / OVERCLOCK / FIREWALL)
     SPACE / click                  -> next round
     any key / click                -> play again on the final screen
+    A S D  /  J K L                -> 2 PLAYER mode: player 1 / player 2
     B / BACKSPACE                  -> back to the menu
     M                              -> mute / unmute music and sounds
     F                              -> fullscreen (web version)
@@ -47,6 +48,10 @@ SCAN_TRUTH = {'easy': 0.85, 'normal': 0.75, 'hard': 0.65}   # chance BRAIN SCAN'
 # ---- what is shown on screen ----
 PLAYER_NAME = "YOU"        # label above your panel
 CPU_NAME = "CPU"           # label above the computer's panel
+P1_NAME = "P1"             # 2 PLAYER mode: left player
+P2_NAME = "P2"             # 2 PLAYER mode: right player
+P1_KEYS = {'a': 'rock', 's': 'paper', 'd': 'scissors'}    # 2 PLAYER: left hand on the keyboard
+P2_KEYS = {'j': 'rock', 'k': 'paper', 'l': 'scissors'}    # 2 PLAYER: right hand on the keyboard
 SHOW_PREDICTION = True     # CPU panel shows what your AI predicted each round
 SHOW_TAUNTS = True         # the CPU talks back after every round
 SHOW_STATS = True          # final screen: move chart, AI accuracy, saved records
@@ -618,6 +623,7 @@ def save_records(records):
 MENU_ITEMS = [   # (id, label, description)
     ('quick', "QUICK MATCH", "best of {rounds} vs the AI. riddles + hacker abilities."),
     ('endless', "ENDLESS", "{lives} lives. the AI gets harder every {level_up} wins."),
+    ('versus', "2 PLAYER", "same keyboard: A S D vs J K L. pick in secret."),
     ('rankings', "RANKINGS", "top 10 scores and your hacker rank."),
     ('archive', "ARCHIVE", "the AI's secret log. decrypted: {frags}"),
 ]
@@ -677,6 +683,12 @@ class Game:
         self.ability_rects = {aid: pygame.Rect(x0 + i * (aw + gap), H - 30, aw, 22)
                               for i, (_, aid, _, _) in enumerate(ABILITIES)}
         self.menu_button = pygame.Rect(16, 10, 104, 22)
+        # 2 PLAYER: three small buttons under each player's panel
+        self.versus_buttons = []
+        for side, keys in ((0, P1_KEYS), (1, P2_KEYS)):
+            x0 = 70 if side == 0 else W - 70 - 440
+            for i, (k, move) in enumerate(keys.items()):
+                self.versus_buttons.append((side, k, move, pygame.Rect(x0 + i * 152, H - 96, 136, 60)))
 
         self.t = 0.0
         self.timer = 0.0
@@ -702,7 +714,7 @@ class Game:
         self.glitch = max(self.glitch, 0.7)
         self.sudden = scene == 'match' and self.sudden
 
-    def menu_rects(self, count, top=200, step=78):
+    def menu_rects(self, count, top=170, step=74):
         return [pygame.Rect(W // 2 - 300, top + i * step, 600, 64) for i in range(count)]
 
     def menu_choices(self):
@@ -738,6 +750,8 @@ class Game:
         self.best_streak = 0
         self.round_wins = 0
         self.move_counts = {move: 0 for move in choices.values()}
+        self.move_counts2 = {move: 0 for move in choices.values()}    # player 2 (2 PLAYER mode)
+        self.best_streak2 = 0
         self.ai_guesses = 0            # rounds where the AI had a prediction
         self.ai_hits = 0               # ...and the prediction was right
         # endless
@@ -767,6 +781,11 @@ class Game:
         self.token_gained = False
         self.player_hand.show('rock', idle=True)
         self.cpu_hand.show('rock', idle=True)
+        if self.mode == 'versus':          # 2 PLAYER: no AI, no riddles
+            self.locked = [None, None]
+            self.prediction = (None, 0.0)
+            self.hint = None
+            return
         # the CPU picks NOW, before you do (using only past rounds)
         self.opponent.choose()
         self.prediction = self.opponent.prediction
@@ -849,6 +868,30 @@ class Game:
             self.ai_guesses += 1
             if guess == self.player_choice:
                 self.ai_hits += 1
+        self.start_shake()
+
+    def lock(self, side, move):
+        """2 PLAYER: one player picks in secret. When both have picked, shoot."""
+        if self.state != 'choose' or self.locked[side]:
+            return
+        self.locked[side] = move
+        self.sound('tie')
+        if None in self.locked:
+            return
+        self.player_choice, self.computer_choice = self.locked
+        self.result = get_winner(self.player_choice, self.computer_choice)
+        a, b = self.player_choice, self.computer_choice
+        if self.result == 'tie':
+            self.message = f"tie: both chose {a}"
+        elif self.result == 'player':
+            self.message = f"{P1_NAME} wins the round: {a} beats {b}"
+        else:
+            self.message = f"{P2_NAME} wins the round: {b} beats {a}"
+        self.move_counts[a] += 1
+        self.move_counts2[b] += 1
+        self.start_shake()
+
+    def start_shake(self):
         self.player_hand.show('rock')
         self.cpu_hand.show('rock')
         self.state = 'shake'
@@ -885,7 +928,9 @@ class Game:
             self.sound('win')
         elif self.result == 'computer':
             self.computer_score += 1
+            combo_breaker = self.mode == 'versus' and self.player_streak >= STREAK_MIN
             self.cpu_streak += 1
+            self.best_streak2 = max(self.best_streak2, self.cpu_streak)
             self.player_streak = 0
             if self.mode == 'endless':
                 self.lives -= 1
@@ -895,7 +940,12 @@ class Game:
             self.sound('tie')                                 # a tie doesn't break a streak
 
         # big stamp text in the middle of the screen
-        if self.result == 'player':
+        if self.result == 'player' and self.mode == 'versus':
+            text = "COMBO BREAKER" if combo_breaker else f"{P1_NAME} SCORES"
+            if not combo_breaker and self.player_streak >= STREAK_MIN:
+                text += f" x{self.player_streak}"
+            self.stamp = (text, PLAYER_COLOR)
+        elif self.result == 'player':
             if combo_breaker:
                 text = "COMBO BREAKER"
             elif double:
@@ -905,6 +955,11 @@ class Game:
             else:
                 text = "HACK SUCCESSFUL"
             self.stamp = (text, PLAYER_COLOR)
+        elif self.result == 'computer' and self.mode == 'versus':
+            text = "COMBO BREAKER" if combo_breaker else f"{P2_NAME} SCORES"
+            if not combo_breaker and self.cpu_streak >= STREAK_MIN:
+                text += f" x{self.cpu_streak}"
+            self.stamp = (text, CPU_COLOR)
         elif self.result == 'computer':
             text = f"HACK FAILED x{self.cpu_streak}" if self.cpu_streak >= STREAK_MIN else "HACK FAILED"
             self.stamp = (text, CPU_COLOR)
@@ -921,6 +976,8 @@ class Game:
         else:
             kind = self.result
         self.taunt = random.choice(TAUNTS[kind]).format(n=self.cpu_streak)
+        if self.mode == 'versus':
+            self.taunt = ""                 # no CPU to talk back
 
         # endless: the AI gets harder every few wins
         if self.mode == 'endless' and self.result == 'player' \
@@ -955,6 +1012,8 @@ class Game:
         if self.saved:
             return
         self.saved = True
+        if self.mode == 'versus':
+            return
         r = self.records
         r['rounds_won'] += self.round_wins
         self.new_best = self.best_streak > r['best_streak']
@@ -982,7 +1041,7 @@ class Game:
             self.glitch = 1.0
             self.save_game()
             return
-        if self.mode == 'quick' and self.round_number >= TOTAL_ROUNDS and not self.sudden:
+        if self.mode != 'endless' and self.round_number >= TOTAL_ROUNDS and not self.sudden:
             self.sudden = True                  # tied after the last round
             self.sound('shoot')
         self.round_number += 1
@@ -1079,6 +1138,8 @@ class Game:
             self.go('difficulty')
         elif choice == 'endless':
             self.start_match('endless', 'easy')
+        elif choice == 'versus':
+            self.start_match('versus', 'normal')
         else:
             self.highlight = None
             self.go(choice)
@@ -1099,6 +1160,9 @@ class Game:
                                and self.menu_button.collidepoint(e.pos)):
             self.sudden = False
             self.go('menu')
+            return
+        if self.mode == 'versus':
+            self.on_versus(e)
             return
         if e.type == pygame.KEYDOWN:
             ch = e.unicode.lower()
@@ -1128,6 +1192,33 @@ class Game:
                 for aid, r in self.ability_rects.items():
                     if r.collidepoint(e.pos):
                         self.use_ability(aid)
+            elif self.state == 'result':
+                self.next_round()
+
+    def on_versus(self, e):
+        """2 PLAYER input: A S D for player 1, J K L for player 2."""
+        if e.type == pygame.KEYDOWN:
+            ch = e.unicode.lower()
+            side = 0 if ch in P1_KEYS else 1 if ch in P2_KEYS else None
+            if self.state == 'choose' and side is not None:
+                self.lock(side, (P1_KEYS, P2_KEYS)[side][ch])
+            elif self.state == 'result':
+                if side is not None and not self.match_over():
+                    self.next_round()
+                    self.lock(side, (P1_KEYS, P2_KEYS)[side][ch])
+                elif e.key in (pygame.K_SPACE, pygame.K_RETURN):
+                    self.next_round()
+            elif self.state == 'final':
+                self.after_final()
+        if e.type == pygame.MOUSEBUTTONDOWN:
+            if self.state == 'final':
+                self.after_final()
+            elif e.button != 1:
+                return
+            elif self.state == 'choose':
+                for side, _, move, r in self.versus_buttons:
+                    if r.collidepoint(e.pos):
+                        self.lock(side, move)
             elif self.state == 'result':
                 self.next_round()
 
@@ -1296,7 +1387,7 @@ class Game:
         title, _ = rank_of(self.records['rounds_won'])
         info = self.f_small.render(f"RANK: {title}    //    ARCHIVE {self.records['fragments']}"
                                    f"/{len(FRAGMENTS)}", True, WHITE)
-        s.blit(info, info.get_rect(center=(W // 2, 540)))
+        s.blit(info, info.get_rect(center=(W // 2, 572)))
         hint = "UP / DOWN + ENTER, a number, or click" + ("" if WEB else "      ESC >> quit")
         self.footer(hint)
 
@@ -1548,6 +1639,9 @@ class Game:
         pw, ph = 440, 380
         left = pygame.Rect(70, 150, pw, ph)
         right = pygame.Rect(W - 70 - pw, 150, pw, ph)
+        if self.mode == 'versus':
+            self.draw_versus(left, right)
+            return
         signature = (f"SIGNATURE : 0x{'%06X' % (self.player_score * 4099 + 0xA11)}", GREY)
         self.draw_panel(left, PLAYER_NAME, "ID: PLAYER_01  //  STATUS: ONLINE", PLAYER_COLOR,
                         self.player_score, self.player_choice, self.player_hand,
@@ -1600,7 +1694,7 @@ class Game:
                 s.blit(why, why.get_rect(center=(W // 2, line_b)))
             if not self.match_over():
                 hint = "SPACE / CLICK  >> next round"
-                if self.mode == 'quick' and self.round_number >= TOTAL_ROUNDS and not self.sudden:
+                if self.mode != 'endless' and self.round_number >= TOTAL_ROUNDS and not self.sudden:
                     hint = "TIED!  SPACE / CLICK  >> SUDDEN DEATH"
                 if self.blink():
                     h = self.f_tiny.render(hint, True, GREY)
@@ -1631,6 +1725,69 @@ class Game:
         if self.state == 'final':
             self.draw_final()
 
+    def draw_versus(self, left, right):
+        """The match screen in 2 PLAYER mode."""
+        s = self.canvas
+        for side, rect, name, color, score, choice, hand, streak in (
+                (0, left, P1_NAME, PLAYER_COLOR, self.player_score, self.player_choice,
+                 self.player_hand, self.player_streak),
+                (1, right, P2_NAME, CPU_COLOR, self.computer_score, self.computer_choice,
+                 self.cpu_hand, self.cpu_streak)):
+            ready = self.state != 'choose' or self.locked[side]
+            status = ("STATUS    : LOCKED", color) if ready else \
+                     ("STATUS    : choosing" + "." * (int(self.t * 3) % 4), GREY)
+            self.draw_panel(rect, name, f"ID: PLAYER_0{side + 1}  //  STATUS: ONLINE", color,
+                            score, choice, hand, self.result == ('player', 'computer')[side],
+                            status, streak)
+            if self.state == 'choose' and self.locked[side] and self.blink(3):
+                inverted_label(s, " LOCKED IN ", self.f_mid, color, center=(rect.centerx, rect.y + 62))
+
+        center_y = left.centery
+        stamp_on = self.state == 'result' and self.timer < 1.4
+        if self.state == 'shake':
+            words = ["ROCK...", "PAPER...", "SCISSORS..."]
+            idx = min(int(self.timer / self.beat), 2)
+            pop = 1.0 - (self.timer % self.beat) / self.beat
+            glitch_text(s, words[idx], self.f_word, WHITE, (W // 2, center_y), 0.15 * pop)
+        elif self.state == 'reveal':
+            inverted_label(s, " SHOOT! ", self.f_word, WHITE, center=(W // 2, center_y))
+        elif not stamp_on:
+            glitch_text(s, "VS", self.f_big, WHITE, (W // 2, center_y), self.glitch * 0.6)
+
+        line_a = H - 166
+        if self.state == 'result':
+            if stamp_on:
+                self.draw_stamp()
+            col = {'player': PLAYER_COLOR, 'computer': CPU_COLOR, 'tie': GREY}[self.result]
+            glitch_text(s, f"> {self.message}", self.f_mid, col, (W // 2, line_a), self.glitch * 0.6)
+            if not self.match_over() and self.blink():
+                hint = "SPACE / CLICK  >> next round"
+                if self.round_number >= TOTAL_ROUNDS and not self.sudden:
+                    hint = "TIED!  SPACE / CLICK  >> SUDDEN DEATH"
+                h = self.f_tiny.render(hint, True, GREY)
+                s.blit(h, h.get_rect(center=(W // 2, H - 18)))
+        elif self.state == 'choose':
+            if self.sudden and self.timer < 1.6:
+                self.draw_stamp()
+            msg = "> both players: pick in secret, then SHOOT"
+            glitch_text(s, msg, self.f_mid, WHITE, (W // 2, line_a + 16), 0)
+
+        mouse = pygame.mouse.get_pos()
+        for side, k, move, r in self.versus_buttons:
+            on = self.state == 'choose' and not self.locked[side]
+            col = (PLAYER_COLOR, CPU_COLOR)[side] if on else DIM
+            if on and r.collidepoint(mouse):
+                pygame.draw.rect(s, col, r, 3)
+            else:
+                pygame.draw.rect(s, col, r, 1)
+            t = self.f_small.render(move.upper(), True, col)
+            s.blit(t, t.get_rect(center=(r.centerx, r.centery - 9)))
+            t = self.f_tiny.render(f"[{k.upper()}]", True, scale(col, 0.7))
+            s.blit(t, t.get_rect(center=(r.centerx, r.centery + 14)))
+
+        if self.state == 'final':
+            self.draw_final()
+
     def draw_final(self):
         s = self.canvas
         ov = pygame.Surface((W, H), pygame.SRCALPHA)
@@ -1640,6 +1797,15 @@ class Game:
             title = f"you survived {self.round_number} waves and won {self.round_wins} rounds"
             col, tag = CPU_COLOR, "CONNECTION TERMINATED"
             score_line = f"SCORE {self.score}"
+        elif self.mode == 'versus':
+            how = " in SUDDEN DEATH" if self.sudden else ""
+            if self.player_score > self.computer_score:
+                title, col, tag = f"Player 1 won the game{how}!", PLAYER_COLOR, f"{P1_NAME} WINS"
+            elif self.computer_score > self.player_score:
+                title, col, tag = f"Player 2 won the game{how}!", CPU_COLOR, f"{P2_NAME} WINS"
+            else:
+                title, col, tag = "The game is a draw!", GREY, "DEADLOCK"
+            score_line = f"{P1_NAME} {self.player_score}  :  {self.computer_score} {P2_NAME}"
         else:
             how = " in SUDDEN DEATH" if self.sudden else ""
             if self.player_score > self.computer_score:
@@ -1671,6 +1837,8 @@ class Game:
     def draw_fragment(self, box):
         """Final screen: the story fragment this game decrypted (if any)."""
         s = self.canvas
+        if self.mode == 'versus':
+            return
         y = box.bottom - 92
         if self.new_fragments:
             n = self.new_fragments[-1]
@@ -1699,18 +1867,32 @@ class Game:
         def heading(text, x):
             s.blit(self.f_tiny.render(text, True, GREY), (x, y))
 
+        def move_chart(title, x, counts):
+            heading(title, x)
+            total = max(1, sum(counts.values()))
+            favourite = max(counts, key=counts.get)
+            for i, (move, n) in enumerate(counts.items()):
+                row_y = y + 28 + i * 30
+                c = WHITE if move == favourite and n else GREY
+                s.blit(self.f_tiny.render(move.upper(), True, c), (x, row_y))
+                bar = pygame.Rect(x + 86, row_y + 1, max(2, int(120 * n / total)), 14)
+                tile_fill(s, self.tiles, bar, FILL[move], c, 7)
+                pct = self.f_tiny.render(f"{round(100 * n / total)}%", True, c)
+                s.blit(pct, (x + 214, row_y))
+
+        if self.mode == 'versus':        # 2 PLAYER: both players' moves + streaks
+            move_chart(f"{P1_NAME} MOVES", x1, self.move_counts)
+            move_chart(f"{P2_NAME} MOVES", x2 + 20, self.move_counts2)
+            heading("BEST STREAK", x3 + 10)
+            for i, (name, n) in enumerate(((P1_NAME, self.best_streak), (P2_NAME, self.best_streak2))):
+                row_y = y + 28 + i * 20
+                s.blit(self.f_tiny.render(name, True, GREY), (x3 + 10, row_y))
+                val = self.f_tiny.render(str(n), True, WHITE)
+                s.blit(val, (x3 + col_w - 20 - val.get_width(), row_y))
+            return
+
         # ---- column 1: which moves you played (bar chart) ----
-        heading("YOUR MOVES", x1)
-        total = max(1, sum(self.move_counts.values()))
-        favourite = max(self.move_counts, key=self.move_counts.get)
-        for i, (move, n) in enumerate(self.move_counts.items()):
-            row_y = y + 28 + i * 30
-            c = WHITE if move == favourite and n else GREY
-            s.blit(self.f_tiny.render(move.upper(), True, c), (x1, row_y))
-            bar = pygame.Rect(x1 + 86, row_y + 1, max(2, int(120 * n / total)), 14)
-            tile_fill(s, self.tiles, bar, FILL[move], c, 7)
-            pct = self.f_tiny.render(f"{round(100 * n / total)}%", True, c)
-            s.blit(pct, (x1 + 214, row_y))
+        move_chart("YOUR MOVES", x1, self.move_counts)
 
         # ---- column 2: how well the AI read you ----
         heading("AI READ YOU", x2 + 20)

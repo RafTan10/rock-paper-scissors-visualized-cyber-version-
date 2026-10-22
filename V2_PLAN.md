@@ -1,5 +1,7 @@
 # Version 2 plan
 
+**Status (2026-10-23):** steps 1 to 7 and the two-player stretch goal are built and tested on desktop. Step 8 is left: test in a browser and on a phone, then submit.
+
 The jam is about one day away. This plan has two parts:
 
 - **Jam build:** what we add in the next day, in order.

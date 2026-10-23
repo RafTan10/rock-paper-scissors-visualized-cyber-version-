@@ -36,8 +36,7 @@ TOTAL_ROUNDS = 5           # rounds per game
 STREAK_MIN = 2             # wins in a row before "STREAK xN" shows up
 SUDDEN_DEATH = True        # a tied quick match goes to sudden death rounds
 
-# ---- endless mode ----
-ENDLESS_LIVES = 3          # a lost round costs a life
+# ---- endless mode (one loss ends the run) ----
 ENDLESS_LEVEL_UP = 5       # round wins before the AI gets harder (and a story fragment unlocks)
 
 # ---- hacker abilities (ENDLESS mode only) ----
@@ -624,7 +623,7 @@ def save_records(records):
 # =====================================================================
 MENU_ITEMS = [   # (id, label, description)
     ('quick', "QUICK MATCH", "best of {rounds} vs the AI. meme riddles hint at its moves."),
-    ('endless', "ENDLESS", "{lives} lives + hacker abilities. the AI gets harder every {level_up} wins."),
+    ('endless', "ENDLESS", "one loss and it's over. hacker abilities. the AI gets harder every {level_up} wins."),
     ('versus', "2 PLAYER", "same keyboard: A S D vs J K L. pick in secret."),
     ('rankings', "RANKINGS", "top 10 scores and your hacker rank."),
     ('archive', "ARCHIVE", "the AI's secret log. decrypted: {frags}"),
@@ -721,7 +720,7 @@ class Game:
 
     def menu_choices(self):
         frags = f"{self.records['fragments']}/{len(FRAGMENTS)}"
-        return [(i, label, about.format(rounds=TOTAL_ROUNDS, lives=ENDLESS_LIVES,
+        return [(i, label, about.format(rounds=TOTAL_ROUNDS,
                                         level_up=ENDLESS_LEVEL_UP, frags=frags))
                 for i, label, about in MENU_ITEMS]
 
@@ -757,7 +756,6 @@ class Game:
         self.ai_guesses = 0            # rounds where the AI had a prediction
         self.ai_hits = 0               # ...and the prediction was right
         # endless
-        self.lives = ENDLESS_LIVES
         self.score = 0
         self.level_ups = 0
         # end of game
@@ -800,7 +798,7 @@ class Game:
     def match_over(self):
         """True when the round that just ended finishes the match."""
         if self.mode == 'endless':
-            return self.lives <= 0
+            return self.result == 'computer'      # one loss ends endless
         if self.sudden:
             return self.result != 'tie'
         if self.round_number < TOTAL_ROUNDS:
@@ -936,8 +934,6 @@ class Game:
             self.cpu_streak += 1
             self.best_streak2 = max(self.best_streak2, self.cpu_streak)
             self.player_streak = 0
-            if self.mode == 'endless':
-                self.lives -= 1
             self.player_hand.dim = True
             self.sound('lose')
         else:
@@ -1425,7 +1421,7 @@ class Game:
         s = self.canvas
         mode, level = self.pending
         if mode == 'endless':
-            sub = (f"ENDLESS  //  {ENDLESS_LIVES} lives  //  the AI gets harder every "
+            sub = (f"ENDLESS  //  one loss ends the run  //  the AI gets harder every "
                    f"{ENDLESS_LEVEL_UP} wins")
             earn = f"win {TOKEN_STREAK} in a row, or level up, for +1 token"
         else:
@@ -1630,9 +1626,6 @@ class Game:
             text = f"WAVE {self.round_number}  //  SCORE {self.score}"
             rnd = self.f_small.render(text, True, WHITE)
             s.blit(rnd, rnd.get_rect(center=(W // 2, 74)))
-            lives = self.f_small.render(f"LIVES: {self.lives}", True,
-                                        CPU_COLOR if self.lives <= 1 else WHITE)   # red on the last life
-            s.blit(lives, lives.get_rect(center=(W // 2, 98)))
             return
         if self.sudden:
             if self.blink(3):

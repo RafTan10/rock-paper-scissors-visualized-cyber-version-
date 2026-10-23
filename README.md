@@ -11,7 +11,7 @@ Rock Paper Scissors against a rogue AI that **learns your habits**. Read its min
 **Modes**
 
 - **Quick Match.** Best of 5 against the AI. A tied match goes to **sudden death**: slow motion, red screen, first round won takes it.
-- **Endless.** 3 lives and **hacker abilities**. The AI gets harder every 5 wins. Score points, chain streaks for bonuses, and get on the top 10.
+- **Endless.** One loss ends the run. You get **hacker abilities**. The AI gets harder every 5 wins. Score points, chain streaks for bonuses, and get on the top 10.
 - **2 Player.** Two people on one keyboard. Both pick in secret, then the hands reveal.
 
 **Playing against the AI**
@@ -27,7 +27,7 @@ Rock Paper Scissors against a rogue AI that **learns your habits**. Read its min
 - **Streaks, combo breakers and taunts.** The CPU types a reply after every round.
 - **End-of-game stats.** A chart of your moves, and how often the AI read you correctly.
 - **Saved progress.** Records, top 10 and story progress are saved in your browser, or in `records.json` on a PC.
-- **Easy to tweak.** Rounds, lives, tokens, colours, names, glitch strength, volume and taunts are in the **GAME SETTINGS** block at the top of [`rps_visual.py`](rps_visual.py). Riddles are in [`riddles.py`](riddles.py) and the story in [`story.py`](story.py).
+- **Easy to tweak.** Rounds, tokens, colours, names, glitch strength, volume and taunts are in the **GAME SETTINGS** block at the top of [`rps_visual.py`](rps_visual.py). Riddles are in [`riddles.py`](riddles.py) and the story in [`story.py`](story.py).
 
 ## How to play
 

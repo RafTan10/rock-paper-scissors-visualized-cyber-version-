@@ -78,7 +78,7 @@ The jam is about one day away. This plan has two parts:
 
 ### 6 · Endless survival and rankings
 
-- 3 lives. A loss costs a life. Ties are free.
+- One loss ends the run. Ties are free.
 - The AI gets harder every 5 wins: Easy, then Normal, then Hard.
 - Score: points per win, plus a streak bonus.
 - A local top 10 with arcade-style 3-letter initials.

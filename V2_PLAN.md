@@ -1,6 +1,17 @@
 # Version 2 plan
 
-**Status (2026-10-23):** steps 1 to 7 and the two-player stretch goal are built and tested on desktop. Step 8 is left: test in a browser and on a phone, then submit.
+**Status (2026-10-23):** the jam build is done and released as `v2.0` on itch.io: https://raftan10.itch.io/rockpaperscissor-cyber
+Steps 1 to 8 and the two-player stretch goal are built. The open tasks are at the bottom, under "Still to do".
+
+### Changes made after this plan was written
+
+The jam build below is what was planned. These changes were made afterwards and win over the plan:
+
+- **Hacker abilities are Endless-only.** Quick Match keeps the riddles but has no abilities or tokens.
+- **Endless has no lives.** One loss ends the run. Ties don't.
+- **Mission briefing screen** before Quick Match and Endless. It explains the riddles, and in Endless the abilities.
+- **Ability bar** is bigger, brighter, and pulses in round 1. Tokens show as a number.
+- **Auto-continue:** after each round, the next one starts by itself after 4 seconds (`AUTO_NEXT`).
 
 The jam is about one day away. This plan has two parts:
 
@@ -138,14 +149,28 @@ Only if steps 1 to 7 are done before the feature freeze.
 
 ---
 
-## After the jam
+## Still to do
 
-1. **Local two-player**, if it didn't make the jam build.
-2. **Full story mode.** Four chapters, each with its own opponent, colour, taunts and lore. The early chapters double as the tutorial. The final boss is ROOT, a secret fourth difficulty that notices when you try to counter it.
-3. **More abilities and loadouts.** Add SPOOF, which feeds the AI a fake move, and DECRYPT, which makes a riddle clearer. Players pick 2 abilities before each match.
-4. **Refactor** `rps_visual.py` into smaller files, with a proper screen system.
-5. **Input layer** that turns keys, touch and joysticks into actions. Arcade sticks then only need a new mapping.
-6. **In-game settings:** glitch strength, screen shake, volume and reduced flashing.
-7. **Polish:** a how-to-play screen, particles, screen flashes, a heartbeat sound for sudden death.
-8. **Arcade battles:** USB arcade sticks, an attract mode that plays itself when idle, and a tournament bracket for events.
-9. **Online leaderboard.** It needs a server.
+### Right now (jam and release)
+
+1. **Submit to the jam.** The itch.io page is live but not yet entered in the jam.
+2. **Play-test in a browser and on a phone.** Use the itch.io page. Check sound, saving, touch buttons and fullscreen.
+3. **itch.io page polish.** Dark page theme (background #060607, links #FF2834). Make the AI disclosure list Code and Text too. Consider matching the page title to "Breach Mode".
+4. **Merge `v2` into `main`.** This updates the GitHub front page and the GitHub Pages web version, which still show v1.
+5. **A short GIF** for the itch.io page and README.
+
+### Balance to watch
+
+- **FIREWALL in Endless** now saves the run from a loss for 1 token, which may be too strong. Possible fix: cost 2 tokens.
+- **Safari** can block saving inside itch.io's frame, so records may not stick for some players.
+
+### After the jam
+
+1. **Full story mode.** Four chapters, each with its own opponent, colour, taunts and lore. The early chapters double as the tutorial. The final boss is ROOT, a secret fourth difficulty that notices when you try to counter it.
+2. **More abilities and loadouts.** Add SPOOF, which feeds the AI a fake move, and DECRYPT, which makes a riddle clearer. Players pick 2 abilities before each match.
+3. **Refactor** `rps_visual.py` into smaller files, with a proper screen system.
+4. **Input layer** that turns keys, touch and joysticks into actions. Arcade sticks then only need a new mapping.
+5. **In-game settings:** glitch strength, screen shake, volume and reduced flashing.
+6. **Polish:** particles, screen flashes, a heartbeat sound for sudden death. A full how-to-play page beyond the briefing.
+7. **Arcade battles:** USB arcade sticks, an attract mode that plays itself when idle, and a tournament bracket for events.
+8. **Online leaderboard.** It needs a server.

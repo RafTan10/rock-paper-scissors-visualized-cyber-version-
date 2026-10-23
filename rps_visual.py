@@ -1616,9 +1616,9 @@ class Game:
             text = f"WAVE {self.round_number}  //  SCORE {self.score}"
             rnd = self.f_small.render(text, True, WHITE)
             s.blit(rnd, rnd.get_rect(center=(W // 2, 74)))
-            hearts = self.f_mid.render("♥ " * self.lives + "· " * (ENDLESS_LIVES - self.lives),
-                                       True, PLAYER_COLOR)
-            s.blit(hearts, hearts.get_rect(center=(W // 2, 100)))
+            lives = self.f_small.render(f"LIVES: {self.lives}", True,
+                                        CPU_COLOR if self.lives <= 1 else WHITE)   # red on the last life
+            s.blit(lives, lives.get_rect(center=(W // 2, 98)))
             return
         if self.sudden:
             if self.blink(3):

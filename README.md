@@ -18,7 +18,7 @@ Rock Paper Scissors against a rogue AI that **learns your habits**. Read its min
 
 - **Three difficulty levels.** SCRIPT KIDDIE is mostly random. FIREWALL learns what you play after each move. BLACK ICE remembers your last two moves and your favourite, and switches to whichever trick works.
 - **Meme riddles.** Each round you intercept one of the CPU's thoughts, such as *"Money printer go BRRRR."* (paper) or *"Never gonna give you up. Never gonna fold."* (not paper). After the round the joke is explained. Harder levels give vaguer riddles.
-- **Hacker abilities.** Spend tokens on **BRAIN SCAN** to see fuzzy bars of what the CPU is leaning towards, **OVERCLOCK** to make a win count double, or **FIREWALL** to turn a loss into a tie. Earn more tokens with win streaks.
+- **Hacker abilities.** Spend tokens on **BRAIN SCAN** to see fuzzy bars of what the CPU is leaning towards, **OVERCLOCK** to make a win count double, or **FIREWALL** to turn a loss into a tie. Earn more tokens with win streaks. A **mission briefing** before each match explains the riddles and abilities, and the ability bar pulses in round 1 so nobody misses it.
 - **A story.** Every match you win decrypts a fragment of the AI's private log. Read them in the **Archive**. The last one is the ending.
 
 **Everything else**

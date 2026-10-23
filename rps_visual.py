@@ -56,6 +56,7 @@ SHOW_PREDICTION = True     # CPU panel shows what your AI predicted each round
 SHOW_TAUNTS = True         # the CPU talks back after every round
 SHOW_STATS = True          # final screen: move chart, AI accuracy, saved records
 SHOW_RIDDLES = True        # a meme riddle hints at the CPU's move each round (riddles.py)
+SHOW_BRIEFING = True       # explain riddles + hacker abilities before a match vs the AI
 
 # ---- feel ----
 GLITCH_STRENGTH = 1.0      # 0 = calm, 1 = normal, 2 = wild
@@ -680,7 +681,7 @@ class Game:
         # hacker abilities: small clickable boxes along the bottom edge
         aw, gap = 196, 12
         x0 = W // 2 - (3 * aw + 2 * gap) // 2 + 60
-        self.ability_rects = {aid: pygame.Rect(x0 + i * (aw + gap), H - 30, aw, 22)
+        self.ability_rects = {aid: pygame.Rect(x0 + i * (aw + gap), H - 32, aw, 26)
                               for i, (_, aid, _, _) in enumerate(ABILITIES)}
         self.menu_button = pygame.Rect(16, 10, 104, 22)
         # 2 PLAYER: three small buttons under each player's panel
@@ -1137,7 +1138,7 @@ class Game:
         if choice == 'quick':
             self.go('difficulty')
         elif choice == 'endless':
-            self.start_match('endless', 'easy')
+            self.brief('endless', 'easy')
         elif choice == 'versus':
             self.start_match('versus', 'normal')
         else:
@@ -1153,7 +1154,25 @@ class Game:
                                                       self.menu_rects(len(items), top=230, step=90))
         if chosen:
             self.sound('beat')
-            self.start_match('quick', items[self.diff_index][0])
+            self.brief('quick', items[self.diff_index][0])
+
+    def brief(self, mode, level):
+        """Show the briefing before a match vs the AI (or start right away)."""
+        self.pending = (mode, level)
+        if SHOW_BRIEFING:
+            self.go('briefing')
+        else:
+            self.start_match(mode, level)
+
+    def on_briefing(self, e):
+        if self.is_back(e):
+            self.go('difficulty' if self.pending[0] == 'quick' else 'menu')
+            return
+        start = (e.type == pygame.KEYDOWN and e.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_KP_ENTER)) \
+            or (e.type == pygame.MOUSEBUTTONDOWN and e.button == 1)
+        if start and self.scene_t > 0.3:
+            self.sound('shoot')
+            self.start_match(*self.pending)
 
     def on_match(self, e):
         if self.is_back(e) or (e.type == pygame.MOUSEBUTTONDOWN and e.button == 1
@@ -1397,6 +1416,56 @@ class Game:
         self.draw_list(items, self.diff_index, self.menu_rects(len(items), top=230, step=90))
         self.footer("ENTER / click to start      B >> back")
 
+    def draw_briefing(self):
+        s = self.canvas
+        mode, level = self.pending
+        if mode == 'endless':
+            sub = (f"ENDLESS  //  {ENDLESS_LIVES} lives  //  the AI gets harder every "
+                   f"{ENDLESS_LEVEL_UP} wins")
+            earn = f"win {TOKEN_STREAK} in a row, or level up, for +1 token"
+        else:
+            sub = f"QUICK MATCH  //  best of {TOTAL_ROUNDS}  //  target: {opponents.INFO[level]['name']}"
+            earn = f"win {TOKEN_STREAK} in a row for +1 token"
+        self.screen_title("MISSION BRIEFING", sub, y=56)
+
+        def section(n, title, y, h, color=WHITE):
+            box = pygame.Rect(130, y, W - 260, h)
+            shade = pygame.Surface(box.size, pygame.SRCALPHA)
+            shade.fill((6, 6, 7, 215))
+            s.blit(shade, box)
+            corner_brackets(s, box, color, 16, 2)
+            inverted_label(s, f" {n}. {title} ", self.f_small, color, (box.x, box.y - 26))
+            return box
+
+        # 1. riddles
+        box = section(1, "READ ITS MIND", 140, 92)
+        s.blit(self.f_small.render("Every round you intercept a CPU thought: a meme riddle about its next move.",
+                                   True, WHITE), (box.x + 24, box.y + 18))
+        s.blit(self.f_small.render('"Money printer go BRRRR."  =  money is paper  =  it plays PAPER.  '
+                                   'So you play SCISSORS.', True, GREY), (box.x + 24, box.y + 52))
+
+        # 2. hacker abilities (the important part)
+        box = section(2, "HACKER ABILITIES", 278, 228, PLAYER_COLOR)
+        for i, (key, _, label, about) in enumerate(ABILITIES):
+            y = box.y + 20 + i * 50
+            k = pygame.Rect(box.x + 24, y, 44, 38)
+            pygame.draw.rect(s, WHITE, k)
+            t = self.f_mid.render(key.upper(), True, BG)
+            s.blit(t, t.get_rect(center=k.center))
+            s.blit(self.f_mid.render(label, True, WHITE), (k.right + 20, y + 4))
+            s.blit(self.f_small.render(about, True, GREY), (k.right + 230, y + 9))
+        tok = f"each costs 1 token. you start with {START_TOKENS}. {earn}."
+        s.blit(self.f_small.render(tok, True, PLAYER_COLOR), (box.x + 24, box.y + 168))
+        tip = self.f_tiny.render("use them BEFORE you pick your move. you can stack them.", True, GREY)
+        s.blit(tip, (box.x + 24, box.y + 198))
+
+        # 3. controls
+        box = section(3, "FIGHT", 550, 56)
+        s.blit(self.f_small.render("1 / 2 / 3  or click  =  rock / paper / scissors        "
+                                   "Q / W / E  or click  =  abilities", True, WHITE),
+               (box.x + 24, box.y + 18))
+        self.footer("ENTER / SPACE / CLICK >> start hacking      B >> back")
+
     def draw_initials(self):
         s = self.canvas
         self.screen_title("NEW HIGH SCORE", f"score {self.score}  //  wave {self.round_number}", y=120)
@@ -1612,11 +1681,12 @@ class Game:
     def draw_abilities(self):
         s = self.canvas
         x = min(r.x for r in self.ability_rects.values())
-        tok = self.f_tiny.render(f"TOKENS {'◆' * self.tokens if self.tokens <= 6 else '◆x' + str(self.tokens)}",
-                                 True, WHITE if self.tokens else GREY)
-        s.blit(tok, (x - tok.get_width() - 16, H - 26))
+        tok = self.f_small.render(f"TOKENS: {self.tokens}", True, PLAYER_COLOR if self.tokens else GREY)
+        s.blit(tok, (x - tok.get_width() - 16, H - 29))
         mouse = pygame.mouse.get_pos()
         deny_aid, deny_t = getattr(self, 'deny', (None, -9))
+        # first round: make the bar pulse so nobody misses it
+        pulse = self.round_number == 1 and not self.active and self.tokens and self.blink(3)
         for key, aid, label, _ in ABILITIES:
             r = self.ability_rects[aid]
             if aid in self.active:
@@ -1625,11 +1695,10 @@ class Game:
             else:
                 denied = aid == deny_aid and self.t - deny_t < 0.4
                 usable = self.tokens > 0
-                col = RED if denied else (WHITE if usable and r.collidepoint(mouse) else
-                                          (GREY if usable else DIM))
-                pygame.draw.rect(s, col, r, 1)
+                col = RED if denied else (WHITE if usable else DIM)
+                pygame.draw.rect(s, col, r, 3 if (pulse or (usable and r.collidepoint(mouse))) else 1)
                 fg = col
-            t = self.f_tiny.render(f"[{key.upper()}] {label}", True, fg)
+            t = self.f_small.render(f"[{key.upper()}] {label}", True, fg)
             s.blit(t, t.get_rect(center=r.center))
 
     def draw_match(self):

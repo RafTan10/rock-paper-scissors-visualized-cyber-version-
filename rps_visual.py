@@ -6,7 +6,7 @@ from try1.py. Change how the game looks and plays in GAME SETTINGS below.
 Controls:
     UP / DOWN + ENTER, or click    -> choose in the menus
     1 / 2 / 3  or click a button  -> rock / paper / scissors
-    Q / W / E  or click            -> hacker abilities (BRAIN SCAN / OVERCLOCK / FIREWALL)
+    Q / W / E  or click            -> ENDLESS: hacker abilities (BRAIN SCAN / OVERCLOCK / FIREWALL)
     SPACE / click                  -> next round
     any key / click                -> play again on the final screen
     A S D  /  J K L                -> 2 PLAYER mode: player 1 / player 2
@@ -40,7 +40,7 @@ SUDDEN_DEATH = True        # a tied quick match goes to sudden death rounds
 ENDLESS_LIVES = 3          # a lost round costs a life
 ENDLESS_LEVEL_UP = 5       # round wins before the AI gets harder (and a story fragment unlocks)
 
-# ---- hacker abilities (vs the AI) ----
+# ---- hacker abilities (ENDLESS mode only) ----
 START_TOKENS = 3           # ability tokens at the start of a match
 TOKEN_STREAK = 3           # +1 token every time your win streak reaches a multiple of this
 SCAN_TRUTH = {'easy': 0.85, 'normal': 0.75, 'hard': 0.65}   # chance BRAIN SCAN's tallest bar is right
@@ -56,7 +56,7 @@ SHOW_PREDICTION = True     # CPU panel shows what your AI predicted each round
 SHOW_TAUNTS = True         # the CPU talks back after every round
 SHOW_STATS = True          # final screen: move chart, AI accuracy, saved records
 SHOW_RIDDLES = True        # a meme riddle hints at the CPU's move each round (riddles.py)
-SHOW_BRIEFING = True       # explain riddles + hacker abilities before a match vs the AI
+SHOW_BRIEFING = True       # explain riddles (+ hacker abilities in ENDLESS) before a match vs the AI
 
 # ---- feel ----
 GLITCH_STRENGTH = 1.0      # 0 = calm, 1 = normal, 2 = wild
@@ -65,6 +65,7 @@ SHAKE_BEAT = 0.28          # seconds per "rock / paper / scissors" pump (bigger 
 SHAKE_BEATS = 3            # number of pumps before SHOOT!
 DECODE_TIME = 0.35         # glitch-in of the real moves after SHOOT!
 FINAL_DELAY = 0.0          # after the last round: seconds before the final screen (0 = instantly)
+AUTO_NEXT = 4.0            # after a round: seconds before the next round starts by itself (0 = wait for a click)
 RESTART_DELAY = 0.8        # final screen ignores input this long (so it isn't skipped by accident)
 
 # ---- colours (red, green, blue: 0-255 each) ----
@@ -622,8 +623,8 @@ def save_records(records):
 #  GAME
 # =====================================================================
 MENU_ITEMS = [   # (id, label, description)
-    ('quick', "QUICK MATCH", "best of {rounds} vs the AI. riddles + hacker abilities."),
-    ('endless', "ENDLESS", "{lives} lives. the AI gets harder every {level_up} wins."),
+    ('quick', "QUICK MATCH", "best of {rounds} vs the AI. meme riddles hint at its moves."),
+    ('endless', "ENDLESS", "{lives} lives + hacker abilities. the AI gets harder every {level_up} wins."),
     ('versus', "2 PLAYER", "same keyboard: A S D vs J K L. pick in secret."),
     ('rankings', "RANKINGS", "top 10 scores and your hacker rank."),
     ('archive', "ARCHIVE", "the AI's secret log. decrypted: {frags}"),
@@ -827,6 +828,8 @@ class Game:
 
     # ---------------- hacker abilities ----------------
     def use_ability(self, aid):
+        if self.mode != 'endless':
+            return                             # hacker abilities are an ENDLESS thing
         if self.state != 'choose' or aid in self.active or self.tokens <= 0:
             self.deny = (aid, self.t)          # flash it red: can't use it now
             return
@@ -919,7 +922,7 @@ class Game:
             self.player_streak += 1
             self.cpu_streak = 0
             self.best_streak = max(self.best_streak, self.player_streak)
-            if self.player_streak % TOKEN_STREAK == 0:
+            if self.mode == 'endless' and self.player_streak % TOKEN_STREAK == 0:
                 self.tokens += 1
                 self.token_gained = True
             if self.mode == 'endless':
@@ -1304,6 +1307,8 @@ class Game:
             self.finish_reveal()
         elif self.state == 'result' and self.match_over() and self.timer >= FINAL_DELAY:
             self.next_round()                   # match over -> final screen by itself
+        elif self.state == 'result' and AUTO_NEXT and self.timer >= AUTO_NEXT:
+            self.next_round()                   # nobody clicked -> next round by itself
 
     def fist_motion(self):
         """Up-down pump for the shake: returns (lift_pixels, tilt_degrees)."""
@@ -1394,7 +1399,7 @@ class Game:
             y += 34
         if typed > 0 and self.blink():
             glitch_text(s, "PRESS ANY KEY", self.f_mid, WHITE, (W // 2, 540), 0)
-        tip = self.f_tiny.render("1 / 2 / 3 = rock / paper / scissors     Q / W / E = hacker abilities",
+        tip = self.f_tiny.render("1 / 2 / 3 = rock / paper / scissors     Q / W / E = hacker abilities (endless)",
                                  True, DIM)
         s.blit(tip, tip.get_rect(center=(W // 2, H - 60)))
 
@@ -1425,7 +1430,6 @@ class Game:
             earn = f"win {TOKEN_STREAK} in a row, or level up, for +1 token"
         else:
             sub = f"QUICK MATCH  //  best of {TOTAL_ROUNDS}  //  target: {opponents.INFO[level]['name']}"
-            earn = f"win {TOKEN_STREAK} in a row for +1 token"
         self.screen_title("MISSION BRIEFING", sub, y=56)
 
         def section(n, title, y, h, color=WHITE):
@@ -1443,6 +1447,16 @@ class Game:
                                    True, WHITE), (box.x + 24, box.y + 18))
         s.blit(self.f_small.render('"Money printer go BRRRR."  =  money is paper  =  it plays PAPER.  '
                                    'So you play SCISSORS.', True, GREY), (box.x + 24, box.y + 52))
+
+        if mode != 'endless':        # quick match: no hacker abilities
+            box = section(2, "FIGHT", 290, 56)
+            s.blit(self.f_small.render("1 / 2 / 3  or click  =  rock / paper / scissors        "
+                                       "best of " + str(TOTAL_ROUNDS) + ", ties go to SUDDEN DEATH",
+                                       True, WHITE), (box.x + 24, box.y + 18))
+            hint = self.f_small.render("want hacker abilities? play ENDLESS.", True, GREY)
+            s.blit(hint, hint.get_rect(center=(W // 2, box.bottom + 40)))
+            self.footer("ENTER / SPACE / CLICK >> start hacking      B >> back")
+            return
 
         # 2. hacker abilities (the important part)
         box = section(2, "HACKER ABILITIES", 278, 228, PLAYER_COLOR)
@@ -1636,6 +1650,16 @@ class Game:
                     s.blit(self.tiles.get('lighthatch', GREY, 8), (xx, pr.y),
                            (0, 0, min(8, pr.right - xx), 8))
 
+    def next_hint(self):
+        """Bottom line after a round, with the auto-continue countdown."""
+        hint = "SPACE / CLICK  >> next round"
+        if self.mode != 'endless' and self.round_number >= TOTAL_ROUNDS and not self.sudden:
+            hint = "TIED!  SPACE / CLICK  >> SUDDEN DEATH"
+        if AUTO_NEXT:
+            hint += f"   ({max(1, math.ceil(AUTO_NEXT - self.timer))})"
+        h = self.f_tiny.render(hint, True, WHITE if AUTO_NEXT else GREY)
+        self.canvas.blit(h, h.get_rect(center=(W // 2, H - 18)))
+
     def prediction_line(self):
         """Second line of the CPU panel: what the AI predicted this round."""
         guess, confidence = self.prediction
@@ -1762,15 +1786,10 @@ class Game:
                 why = self.f_small.render(f"riddle decoded: {self.hint[1]}", True, GREY)
                 s.blit(why, why.get_rect(center=(W // 2, line_b)))
             if not self.match_over():
-                hint = "SPACE / CLICK  >> next round"
-                if self.mode != 'endless' and self.round_number >= TOTAL_ROUNDS and not self.sudden:
-                    hint = "TIED!  SPACE / CLICK  >> SUDDEN DEATH"
-                if self.blink():
-                    h = self.f_tiny.render(hint, True, GREY)
-                    s.blit(h, h.get_rect(center=(W // 2, H - 18)))
+                self.next_hint()
                 if self.token_gained:
                     inverted_label(s, " +1 TOKEN ", self.f_tiny, PLAYER_COLOR,
-                                   center=(W // 2 + 210, H - 18))
+                                   center=(W // 2 + 250, H - 18))
         elif self.state == 'choose':
             if self.sudden and self.timer < 1.6:
                 self.draw_stamp()
@@ -1784,7 +1803,8 @@ class Game:
             else:
                 msg = "> no signal intercepted. trust your gut" if SHOW_RIDDLES else "> select payload"
                 glitch_text(s, msg + cursor, self.f_mid, WHITE, (W // 2, line_a + 16), 0)
-            self.draw_abilities()
+            if self.mode == 'endless':
+                self.draw_abilities()
 
         mouse = pygame.mouse.get_pos()
         for b in self.buttons:
@@ -1829,12 +1849,8 @@ class Game:
                 self.draw_stamp()
             col = {'player': PLAYER_COLOR, 'computer': CPU_COLOR, 'tie': GREY}[self.result]
             glitch_text(s, f"> {self.message}", self.f_mid, col, (W // 2, line_a), self.glitch * 0.6)
-            if not self.match_over() and self.blink():
-                hint = "SPACE / CLICK  >> next round"
-                if self.round_number >= TOTAL_ROUNDS and not self.sudden:
-                    hint = "TIED!  SPACE / CLICK  >> SUDDEN DEATH"
-                h = self.f_tiny.render(hint, True, GREY)
-                s.blit(h, h.get_rect(center=(W // 2, H - 18)))
+            if not self.match_over():
+                self.next_hint()
         elif self.state == 'choose':
             if self.sudden and self.timer < 1.6:
                 self.draw_stamp()

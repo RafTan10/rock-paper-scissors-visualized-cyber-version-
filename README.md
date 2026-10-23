@@ -11,14 +11,14 @@ Rock Paper Scissors against a rogue AI that **learns your habits**. Read its min
 **Modes**
 
 - **Quick Match.** Best of 5 against the AI. A tied match goes to **sudden death**: slow motion, red screen, first round won takes it.
-- **Endless.** 3 lives. The AI gets harder every 5 wins. Score points, chain streaks for bonuses, and get on the top 10.
+- **Endless.** 3 lives and **hacker abilities**. The AI gets harder every 5 wins. Score points, chain streaks for bonuses, and get on the top 10.
 - **2 Player.** Two people on one keyboard. Both pick in secret, then the hands reveal.
 
 **Playing against the AI**
 
 - **Three difficulty levels.** SCRIPT KIDDIE is mostly random. FIREWALL learns what you play after each move. BLACK ICE remembers your last two moves and your favourite, and switches to whichever trick works.
 - **Meme riddles.** Each round you intercept one of the CPU's thoughts, such as *"Money printer go BRRRR."* (paper) or *"Never gonna give you up. Never gonna fold."* (not paper). After the round the joke is explained. Harder levels give vaguer riddles.
-- **Hacker abilities.** Spend tokens on **BRAIN SCAN** to see fuzzy bars of what the CPU is leaning towards, **OVERCLOCK** to make a win count double, or **FIREWALL** to turn a loss into a tie. Earn more tokens with win streaks. A **mission briefing** before each match explains the riddles and abilities, and the ability bar pulses in round 1 so nobody misses it.
+- **Hacker abilities (Endless).** Spend tokens on **BRAIN SCAN** to see fuzzy bars of what the CPU is leaning towards, **OVERCLOCK** to make a win count double, or **FIREWALL** to turn a loss into a tie. Earn more tokens with win streaks. A **mission briefing** before each match explains the riddles, and in Endless the abilities, and the ability bar pulses in round 1 so nobody misses it.
 - **A story.** Every match you win decrypts a fragment of the AI's private log. Read them in the **Archive**. The last one is the ending.
 
 **Everything else**
@@ -35,9 +35,9 @@ Rock Paper Scissors against a rogue AI that **learns your habits**. Read its min
 |---|---|
 | `↑` / `↓` + `Enter`, a number, or click | choose in the menus |
 | `1` / `2` / `3`, or click a button | rock / paper / scissors |
-| `Q` / `W` / `E`, or click | BRAIN SCAN / OVERCLOCK / FIREWALL |
+| `Q` / `W` / `E`, or click | Endless: BRAIN SCAN / OVERCLOCK / FIREWALL |
 | `A` `S` `D` and `J` `K` `L` | 2 Player: player 1 and player 2 |
-| `Space` or click | next round |
+| `Space` or click | next round (it also starts by itself after 4 seconds) |
 | any key or click | play again on the final screen |
 | `B` or `Backspace` | back to the menu |
 | `M` | mute / unmute |

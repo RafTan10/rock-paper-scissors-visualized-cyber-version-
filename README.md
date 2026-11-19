@@ -4,7 +4,17 @@ A 5-round Rock Paper Scissors game against a computer that **learns your habits*
 
 ### ▶ [Play it in your browser](https://raftan10.github.io/rock-paper-scissors-visualized-cyber-version-/)
 
+![Gameplay demo: five rounds against the learning AI, then the final stats screen](docs/demo.gif)
+
+## 🎬 Demo video
+
+<!-- Drag docs/demo.mp4 here in GitHub's web editor and it will become a playable video -->
+
+<details><summary>Screenshot</summary>
+
 ![Gameplay screenshot](docs/screenshot.png)
+
+</details>
 
 ## Features
 
